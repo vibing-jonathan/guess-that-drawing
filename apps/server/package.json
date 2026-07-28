@@ -1,0 +1,33 @@
+{
+  "name": "@gtd/server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format esm --platform node --target node22 --out-dir dist --sourcemap",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:redis": "vitest run test/redis.integration.test.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/static": "^10.1.2",
+    "@gtd/contracts": "0.1.0",
+    "fastify": "^5.7.4",
+    "ioredis": "^5.8.2",
+    "nanoid": "^5.1.6",
+    "socket.io": "^4.8.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.9",
+    "socket.io-client": "^4.8.3",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
