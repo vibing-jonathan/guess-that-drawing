@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "Guess That Drawing — Responsive Frontend Prototype",
+  "entry": "guess-that-drawing-prototype.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": ["html", "pdf", "zip"],
+  "primary": true,
+  "supportingFiles": [
+    "DESIGN.md",
+    "brand-spec.md",
+    "prototype/tokens.css",
+    "prototype/base.css",
+    "prototype/components.css",
+    "prototype/chrome.css",
+    "prototype/screens.css",
+    "prototype/responsive.css",
+    "prototype/icons.jsx",
+    "prototype/components.jsx",
+    "prototype/screens-setup.jsx",
+    "prototype/screens-game.jsx",
+    "prototype/app.jsx"
+  ],
+  "sourceSkillId": "frontend-design",
+  "designSystemId": "guess-that-drawing",
+  "metadata": {
+    "identifier": "guess-that-drawing-frontend-prototype",
+    "prototypeOnly": true,
+    "framework": "React 18 inline JSX",
+    "designSystem": "DESIGN.md"
+  }
+}

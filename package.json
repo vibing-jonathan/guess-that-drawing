@@ -1,0 +1,26 @@
+{
+  "name": "guess-that-drawing",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c cyan,magenta \"npm run dev -w @gtd/server\" \"npm run dev -w @gtd/web\"",
+    "build": "npm run build -w @gtd/contracts && npm run build -w @gtd/web && npm run build -w @gtd/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test -w @gtd/contracts && npm run test -w @gtd/server && npm run test -w @gtd/web",
+    "test:e2e": "npm run test:e2e -w @gtd/web",
+    "start": "npm run start -w @gtd/server",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

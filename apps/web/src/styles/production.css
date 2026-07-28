@@ -1,0 +1,108 @@
+/* Production-only bindings layered on the reviewed Open Design artifact. */
+
+.canvas-stack {
+  position: relative;
+  inline-size: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: inherit;
+  background: var(--color-canvas);
+}
+
+.drawing-canvas {
+  aspect-ratio: 4 / 3;
+}
+
+.canvas-stack canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.canvas-stack__main {
+  z-index: 1;
+  touch-action: none;
+}
+
+.canvas-stack__preview {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.game-page--drawer .canvas-stack__main {
+  cursor: crosshair;
+}
+
+.drawing-canvas--dimmed .canvas-stack {
+  opacity: 0.72;
+}
+
+.chat-empty {
+  margin: auto;
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.chat-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-on-danger-subtle);
+}
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  padding: 0;
+  border: 0;
+  background: var(--color-scrim);
+}
+
+.saved-themes li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.system-state-card__icon .icon {
+  animation: connection-spin 1.8s linear infinite;
+}
+
+.system-state-card[role="alert"] .system-state-card__icon .icon {
+  animation: none;
+}
+
+@keyframes connection-spin {
+  to {
+    rotate: 1turn;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  .canvas-stack {
+    min-block-size: clamp(15rem, 57vh, 34rem);
+    aspect-ratio: auto;
+  }
+
+  .game-page--drawer .canvas-stack {
+    min-block-size: clamp(12rem, 40vh, 25rem);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 31rem) {
+  .canvas-stack,
+  .game-page--drawer .canvas-stack {
+    min-block-size: min(58vh, 23rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .system-state-card__icon .icon {
+    animation: none;
+  }
+}
