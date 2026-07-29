@@ -22,6 +22,7 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -301,6 +302,25 @@ const AVATAR_OPTIONS = {
   ],
 } as const;
 
+const AVATAR_BACKGROUND_OPTIONS = [
+  ["#EEF4FF", "Cobalt"],
+  ["#F0FDFA", "Teal"],
+  ["#FEF9C3", "Yellow"],
+  ["#FFF1F2", "Coral"],
+] as const;
+
+type AvatarLayerKey = keyof AvatarConfig;
+
+const AVATAR_LAYER_LABELS: Record<AvatarLayerKey, string> = {
+  skinTone: "Skin tone",
+  hairStyle: "Hair style",
+  hairColor: "Hair color",
+  eyes: "Eyes",
+  mouth: "Mouth",
+  accessory: "Accessory",
+  backgroundColor: "Avatar background",
+};
+
 function LayerControl({
   label,
   value,
@@ -312,6 +332,11 @@ function LayerControl({
   options: readonly (readonly [string, string])[];
   onChange: (value: string) => void;
 }) {
+  const selectedIndex = options.findIndex(
+    ([optionValue]) => optionValue.toLowerCase() === value.toLowerCase(),
+  );
+  const focusableIndex = selectedIndex >= 0 ? selectedIndex : 0;
+
   function moveSelection(event: KeyboardEvent<HTMLDivElement>) {
     if (
       ![
@@ -358,19 +383,23 @@ function LayerControl({
         aria-label={label}
         onKeyDown={moveSelection}
       >
-        {options.map(([optionValue, optionLabel]) => (
-          <button
-            key={optionValue}
-            type="button"
-            className={value === optionValue ? "is-selected" : ""}
-            role="radio"
-            aria-checked={value === optionValue}
-            tabIndex={value === optionValue ? 0 : -1}
-            onClick={() => onChange(optionValue)}
-          >
-            {optionLabel}
-          </button>
-        ))}
+        {options.map(([optionValue, optionLabel], index) => {
+          const isSelected =
+            optionValue.toLowerCase() === value.toLowerCase();
+          return (
+            <button
+              key={optionValue}
+              type="button"
+              className={isSelected ? "is-selected" : ""}
+              role="radio"
+              aria-checked={isSelected}
+              tabIndex={index === focusableIndex ? 0 : -1}
+              onClick={() => onChange(optionValue)}
+            >
+              {optionLabel}
+            </button>
+          );
+        })}
       </div>
     </fieldset>
   );
@@ -380,6 +409,8 @@ export function ProfileScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const [profile, setProfile] = useState<PlayerProfile>(() => loadProfile());
+  const [compactLayer, setCompactLayer] =
+    useState<AvatarLayerKey>("skinTone");
   const [submitted, setSubmitted] = useState(false);
   const parsed = PlayerProfileSchema.safeParse(profile);
   const requestedNext = new URLSearchParams(location.search).get("next");
@@ -387,6 +418,23 @@ export function ProfileScreen() {
     requestedNext?.startsWith("/") && !requestedNext.startsWith("//")
       ? requestedNext
       : "/create";
+  const isRoomSetup = ["/create", "/themes", "/themes/new", "/review"].includes(
+    next,
+  );
+  const backgroundOptions: readonly (readonly [string, string])[] =
+    AVATAR_BACKGROUND_OPTIONS.some(
+      ([value]) =>
+        value.toLowerCase() === profile.avatar.backgroundColor.toLowerCase(),
+    )
+      ? AVATAR_BACKGROUND_OPTIONS
+      : [
+          ...AVATAR_BACKGROUND_OPTIONS,
+          [profile.avatar.backgroundColor, "Custom"],
+        ];
+  const compactLayerOptions: readonly (readonly [string, string])[] =
+    compactLayer === "backgroundColor"
+      ? backgroundOptions
+      : AVATAR_OPTIONS[compactLayer];
   const profileError =
     submitted && !parsed.success
       ? `Use a name between ${VALIDATION_LIMITS.playerName.min} and ${VALIDATION_LIMITS.playerName.max} characters.`
@@ -412,7 +460,34 @@ export function ProfileScreen() {
         description="This name and avatar stay with you for the room. No account or upload needed."
         id="profile-title"
       />
-      <form className="profile-workspace" onSubmit={submit} noValidate>
+      <SetupFrame
+        active={isRoomSetup ? 1 : null}
+        className={isRoomSetup ? "" : "setup-flow--standalone"}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon="arrowLeft"
+              onClick={() => navigate("/")}
+            >
+              Back
+            </Button>
+            <Button
+              type="submit"
+              form="profile-form"
+              icon="arrowRight"
+            >
+              Save profile
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="profile-form"
+          className="profile-workspace"
+          onSubmit={submit}
+          noValidate
+        >
         <Panel className="avatar-preview-panel">
           <span className="eyebrow">Live preview</span>
           <Avatar
@@ -452,9 +527,7 @@ export function ProfileScreen() {
             ).map(([key, options]) => (
                 <LayerControl
                   key={key}
-                  label={key
-                    .replace(/([A-Z])/g, " $1")
-                    .replace(/^./, (letter) => letter.toUpperCase())}
+                  label={AVATAR_LAYER_LABELS[key]}
                 value={profile.avatar[key]}
                 options={options}
                 onChange={(value) =>
@@ -465,38 +538,67 @@ export function ProfileScreen() {
                 }
               />
             ))}
-            <div className="field">
-              <label htmlFor="avatar-background">Avatar background</label>
-              <input
-                id="avatar-background"
-                type="color"
-                value={profile.avatar.backgroundColor}
-                onChange={(event) =>
-                  setProfile((current) => ({
-                    ...current,
-                    avatar: {
-                      ...current.avatar,
-                      backgroundColor: event.target.value,
-                    },
-                  }))
-                }
-              />
-            </div>
+            <LayerControl
+              label="Avatar background"
+              value={profile.avatar.backgroundColor}
+              options={backgroundOptions}
+              onChange={(value) =>
+                setProfile((current) => ({
+                  ...current,
+                  avatar: {
+                    ...current.avatar,
+                    backgroundColor: value,
+                  },
+                }))
+              }
+            />
           </div>
-          <div className="form-actions">
-            <Button
-              variant="secondary"
-              icon="arrowLeft"
-              onClick={() => navigate("/")}
+          <div
+            className="avatar-compact-controls"
+            aria-label="Compact avatar maker controls"
+          >
+            <SelectField
+              id="avatar-feature"
+              label="Avatar feature"
+              value={compactLayer}
+              onChange={(event) =>
+                setCompactLayer(event.target.value as AvatarLayerKey)
+              }
             >
-              Back
-            </Button>
-            <Button type="submit" icon="arrowRight">
-              Save profile
-            </Button>
+              {(
+                Object.entries(AVATAR_LAYER_LABELS) as Array<
+                  [AvatarLayerKey, string]
+                >
+              ).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </SelectField>
+            <SelectField
+              id="avatar-feature-choice"
+              label={`${AVATAR_LAYER_LABELS[compactLayer]} choice`}
+              value={profile.avatar[compactLayer]}
+              onChange={(event) =>
+                setProfile((current) => ({
+                  ...current,
+                  avatar: {
+                    ...current.avatar,
+                    [compactLayer]: event.target.value,
+                  } as AvatarConfig,
+                }))
+              }
+            >
+              {compactLayerOptions.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </SelectField>
           </div>
         </div>
-      </form>
+        </form>
+      </SetupFrame>
     </main>
   );
 }
@@ -525,6 +627,30 @@ function SetupSteps({ active }: { active: number }) {
   );
 }
 
+function SetupFrame({
+  active,
+  actions,
+  children,
+  className = "",
+}: {
+  active: number | null;
+  actions: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Panel
+      className={`setup-flow setup-frame ${
+        active ? "setup-frame--with-progress" : "setup-frame--without-progress"
+      } ${className}`}
+    >
+      {active ? <SetupSteps active={active} /> : null}
+      <div className="setup-flow__stage">{children}</div>
+      <div className="form-actions setup-frame__actions">{actions}</div>
+    </Panel>
+  );
+}
+
 export function CreateRoomScreen() {
   const navigate = useNavigate();
   const { settings, setSettings } = useSetup();
@@ -540,10 +666,31 @@ export function CreateRoomScreen() {
         description="Choose a relaxed default now. The host can adjust these settings in the lobby."
         id="create-title"
       />
-      <div className="setup-layout">
-        <SetupSteps active={2} />
-        <Panel className="settings-form">
+      <SetupFrame
+        active={2}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon="arrowLeft"
+              onClick={() => navigate("/profile?next=/create")}
+            >
+              Back
+            </Button>
+            <Button
+              type="submit"
+              form="room-settings-form"
+              icon="arrowRight"
+            >
+              Choose a theme
+            </Button>
+          </>
+        }
+      >
+        <div className="setup-stage--summary">
           <form
+            id="room-settings-form"
+            className="settings-form"
             onSubmit={(event) => {
               event.preventDefault();
               navigate("/themes");
@@ -624,21 +771,8 @@ export function CreateRoomScreen() {
               Rooms are not listed publicly. Only people with the code can
               enter.
             </Banner>
-            <div className="form-actions">
-              <Button
-                variant="secondary"
-                icon="arrowLeft"
-                onClick={() => navigate("/profile?next=/create")}
-              >
-                Back
-              </Button>
-              <Button type="submit" icon="arrowRight">
-                Choose a theme
-              </Button>
-            </div>
           </form>
-        </Panel>
-        <aside className="setup-summary" aria-label="Room summary">
+          <aside className="setup-summary" aria-label="Room summary">
           <span className="eyebrow">Current setup</span>
           <dl>
             <div>
@@ -658,8 +792,9 @@ export function CreateRoomScreen() {
               <dd>{settings.theme.name}</dd>
             </div>
           </dl>
-        </aside>
-      </div>
+          </aside>
+        </div>
+      </SetupFrame>
     </main>
   );
 }
@@ -762,8 +897,7 @@ export function JoinScreen({ initialError }: JoinScreenProps = {}) {
         description="Enter the code from your host. Spaces and hyphens are ignored."
         id="join-title"
       />
-      <Panel className="join-card">
-        <form onSubmit={join}>
+      <Panel as="form" className="join-card" onSubmit={join}>
           {error ? (
             <Banner
               tone={serverError ? "danger" : "warning"}
@@ -777,7 +911,7 @@ export function JoinScreen({ initialError }: JoinScreenProps = {}) {
           <Field
             id="join-code"
             label="Room code"
-            className="join-code-input numeric"
+            inputClassName="join-code-input numeric"
             value={code}
             maxLength={VALIDATION_LIMITS.roomCodeLength * 3}
             autoCapitalize="characters"
@@ -867,7 +1001,6 @@ export function JoinScreen({ initialError }: JoinScreenProps = {}) {
               </Button>
             )}
           </div>
-        </form>
       </Panel>
     </main>
   );
@@ -916,8 +1049,6 @@ export function ThemeLibraryScreen() {
   const navigate = useNavigate();
   const { settings, setSettings, customTheme, setCustomTheme } = useSetup();
   const bundledThemes = useBundledThemes();
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string>();
   const [savedThemes, setSavedThemes] = useState<StoredCustomTheme[]>([]);
 
   useEffect(() => {
@@ -925,30 +1056,6 @@ export function ThemeLibraryScreen() {
       .then(setSavedThemes)
       .catch(() => setSavedThemes([]));
   }, []);
-
-  async function createRoom() {
-    const profile = loadProfile();
-    if (!PlayerProfileSchema.safeParse(profile).success) {
-      navigate("/profile?next=/themes");
-      return;
-    }
-    setPending(true);
-    setError(undefined);
-    try {
-      const established = await roomController.createRoom({
-        profile,
-        settings,
-        ...(customTheme ? { customTheme } : {}),
-      });
-      navigate(`/room/${established.snapshot.code}`, { replace: true });
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Unable to create a room.",
-      );
-    } finally {
-      setPending(false);
-    }
-  }
 
   const choosePreset = (theme: ThemeMetadata) => {
     setCustomTheme(undefined);
@@ -978,22 +1085,36 @@ export function ThemeLibraryScreen() {
         title="Pick the room’s prompt deck"
         description="Bundled themes are ready to play. Custom themes stay private to your room."
         id="themes-title"
-        actions={
-          <Button
-            variant="secondary"
-            icon="plus"
-            onClick={() => navigate("/themes/new")}
-          >
-            New custom theme
-          </Button>
-        }
       />
-      {error ? (
-        <Banner tone="danger" title="Room creation failed" role="alert">
-          {error}
-        </Banner>
-      ) : null}
-      <div className="theme-grid" role="radiogroup" aria-label="Themes">
+      <SetupFrame
+        active={3}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon="plus"
+              onClick={() => navigate("/themes/new")}
+            >
+              New custom theme
+            </Button>
+            <Button
+              variant="secondary"
+              icon="arrowLeft"
+              onClick={() => navigate("/create")}
+            >
+              Back
+            </Button>
+            <Button
+              icon="arrowRight"
+              onClick={() => navigate("/review")}
+              data-testid="review-room-submit"
+            >
+              Review room
+            </Button>
+          </>
+        }
+      >
+        <div className="theme-grid" role="radiogroup" aria-label="Themes">
         {bundledThemes.map((theme) => (
           <ThemeCard
             key={theme.id}
@@ -1016,24 +1137,122 @@ export function ThemeLibraryScreen() {
             onSelect={() => chooseCustom(theme)}
           />
         ))}
-      </div>
-      <div className="form-actions">
-        <Button
-          variant="secondary"
-          icon="arrowLeft"
-          onClick={() => navigate("/create")}
-        >
-          Back
-        </Button>
-        <Button
-          icon="arrowRight"
-          onClick={() => void createRoom()}
-          disabled={pending}
-          data-testid="create-room-submit"
-        >
-          {pending ? "Creating room…" : `Create room with ${settings.theme.name}`}
-        </Button>
-      </div>
+        </div>
+      </SetupFrame>
+    </main>
+  );
+}
+
+export function ReviewRoomScreen() {
+  const navigate = useNavigate();
+  const { settings, customTheme } = useSetup();
+  const profile = loadProfile();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function createRoom() {
+    const parsedProfile = PlayerProfileSchema.safeParse(profile);
+    if (!parsedProfile.success) {
+      navigate("/profile?next=/review");
+      return;
+    }
+    setPending(true);
+    setError(undefined);
+    try {
+      const established = await roomController.createRoom({
+        profile: parsedProfile.data,
+        settings,
+        ...(customTheme ? { customTheme } : {}),
+      });
+      navigate(`/room/${established.snapshot.code}`, { replace: true });
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Unable to create a room.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <main
+      id="main-content"
+      className="page-shell review-screen"
+      aria-labelledby="review-title"
+    >
+      <PageHeader
+        kicker="Step 4 of 4"
+        title="Review the room"
+        description="Check the essentials, then open the lobby and invite your players."
+        id="review-title"
+      />
+      <SetupFrame
+        active={4}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon="arrowLeft"
+              onClick={() => navigate("/themes")}
+            >
+              Back
+            </Button>
+            <Button
+              icon="arrowRight"
+              onClick={() => void createRoom()}
+              disabled={pending}
+              data-testid="create-room-submit"
+            >
+              {pending ? "Creating room…" : "Create room"}
+            </Button>
+          </>
+        }
+      >
+        <div className="setup-stage--summary">
+          <div className="review-card">
+            <div className="review-identity">
+              <Avatar name={profile.name} config={profile.avatar} size={64} />
+              <div>
+                <span className="eyebrow">Host profile</span>
+                <strong>{profile.name || "Guest"}</strong>
+              </div>
+            </div>
+            {error ? (
+              <Banner tone="danger" title="Room creation failed" role="alert">
+                {error}
+              </Banner>
+            ) : null}
+            <Banner tone="info" icon="lock" title="Private by default">
+              Only people with the six-character room code can enter.
+            </Banner>
+          </div>
+          <aside className="setup-summary" aria-label="Room review">
+            <span className="eyebrow">Final setup</span>
+            <dl>
+              <div>
+                <dt>Players</dt>
+                <dd>Up to {settings.maxPlayers}</dd>
+              </div>
+              <div>
+                <dt>Cycles</dt>
+                <dd>{settings.drawingCycles}</dd>
+              </div>
+              <div>
+                <dt>Turn</dt>
+                <dd>{settings.turnSeconds} sec</dd>
+              </div>
+              <div>
+                <dt>Selection</dt>
+                <dd>{settings.wordSelectionSeconds} sec</dd>
+              </div>
+              <div>
+                <dt>Theme</dt>
+                <dd>{settings.theme.name}</dd>
+              </div>
+            </dl>
+          </aside>
+        </div>
+      </SetupFrame>
     </main>
   );
 }
@@ -1113,7 +1332,30 @@ export function ThemeEditorScreen() {
         description="Edit locally, clean duplicates, then select the theme for this room."
         id="editor-title"
       />
-      <div className="editor-layout">
+      <SetupFrame
+        active={3}
+        className="setup-flow--editor"
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon="arrowLeft"
+              onClick={() => navigate("/themes")}
+            >
+              Cancel
+            </Button>
+            <Button
+              icon="save"
+              onClick={() => void saveAndSelect()}
+              disabled={!validation.success}
+              data-testid="save-custom-theme"
+            >
+              Save and select
+            </Button>
+          </>
+        }
+      >
+        <div className="editor-layout">
         <aside className="saved-themes" aria-labelledby="saved-themes-title">
           <div className="split">
             <h2 id="saved-themes-title">Saved locally</h2>
@@ -1286,23 +1528,6 @@ export function ThemeEditorScreen() {
               );
             })}
           </ol>
-          <div className="form-actions">
-            <Button
-              variant="secondary"
-              icon="arrowLeft"
-              onClick={() => navigate("/themes")}
-            >
-              Cancel
-            </Button>
-            <Button
-              icon="save"
-              onClick={() => void saveAndSelect()}
-              disabled={!validation.success}
-              data-testid="save-custom-theme"
-            >
-              Save and select
-            </Button>
-          </div>
         </Panel>
         <aside className="editor-sidebar" aria-label="Theme readiness">
           <Panel>
@@ -1382,7 +1607,8 @@ export function ThemeEditorScreen() {
             </ul>
           </Panel>
         </aside>
-      </div>
+        </div>
+      </SetupFrame>
     </main>
   );
 }

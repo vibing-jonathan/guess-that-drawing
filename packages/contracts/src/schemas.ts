@@ -73,7 +73,7 @@ export const DEFAULT_AVATAR: AvatarConfig = {
   eyes: "dots",
   mouth: "smile",
   accessory: "none",
-  backgroundColor: "#DCE7FF",
+  backgroundColor: "#EEF4FF",
 };
 
 export const PlayerProfileSchema = z

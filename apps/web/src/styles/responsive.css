@@ -63,7 +63,7 @@
   }
 
   .game-shell .player-row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .game-shell .player-row .avatar {
@@ -110,8 +110,16 @@
     grid-template-columns: minmax(10rem, 0.35fr) minmax(0, 1fr);
   }
 
+  .setup-stage--summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .setup-summary {
     grid-column: 2;
+  }
+
+  .setup-stage--summary > .setup-summary {
+    grid-column: 1;
   }
 
   .theme-grid {
@@ -322,14 +330,40 @@
   }
 
   .profile-workspace,
+  .setup-flow,
   .setup-layout,
   .editor-layout,
   .lobby-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  :is(
+    .profile-screen,
+    .create-screen,
+    .theme-screen,
+    .editor-screen,
+    .review-screen
+  ) > .page-heading {
+    min-block-size: 0;
+  }
+
+  .setup-frame {
+    block-size: auto;
+    min-block-size: 0;
+    overflow: visible;
+  }
+
+  .setup-frame > .setup-flow__stage {
+    padding-inline-end: 0;
+    overflow: visible;
+  }
+
   .avatar-preview-panel {
     position: static;
+  }
+
+  .avatar-layers {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .setup-steps {
@@ -508,7 +542,7 @@
     box-shadow: var(--shadow-overlay);
   }
 
-  .game-page--drawer .play-column {
+  .game-page--drawer:not(.game-page--selecting) .play-column {
     padding-block-end: min(46vh, 23rem);
   }
 
@@ -571,25 +605,46 @@
   }
 
   .word-select-layer {
-    inset-block-start: 0;
-    align-items: end;
-    padding: 0;
+    --word-dialog-top: clamp(4rem, 10dvh, 6rem);
+
+    inset: 0;
+    place-items: start center;
+    padding:
+      var(--word-dialog-top)
+      max(var(--space-2), var(--safe-right))
+      max(var(--space-2), var(--safe-bottom))
+      max(var(--space-2), var(--safe-left));
   }
 
   .word-select-dialog {
-    max-block-size: 92vh;
+    inline-size: min(100%, 36rem);
+    max-block-size:
+      calc(
+        100dvh
+        - var(--word-dialog-top)
+        - max(var(--space-2), var(--safe-bottom))
+      );
     overflow-y: auto;
-    border-block-end: 0;
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-    padding-block-end: max(var(--space-5), var(--safe-bottom));
+    border-block-end: var(--border-standard) solid var(--color-ink);
+    border-radius: var(--radius-xl);
+    padding: var(--space-4);
   }
 
   .word-select-heading {
     display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--space-2);
+  }
+
+  .word-select-heading .timer {
+    min-inline-size: 7.25rem;
   }
 
   .word-choice-list {
     grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+    margin-block: var(--space-3);
   }
 
   .word-choice-list button {
@@ -601,6 +656,15 @@
 
   .word-choice-list button > small {
     grid-column: 1 / -1;
+  }
+
+  .word-select-dialog .dialog__actions {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .word-select-dialog .dialog__actions .button {
+    inline-size: 100%;
   }
 
   .results-page,
@@ -722,6 +786,79 @@
   }
 }
 
+@media (min-width: 1180px) and (max-height: 950px) {
+  html:has(.setup-frame),
+  body:has(.setup-frame) {
+    overflow-y: hidden;
+  }
+
+  .app-shell {
+    padding-block-end: var(--safe-bottom);
+  }
+
+  :is(
+    .profile-screen,
+    .create-screen,
+    .theme-screen,
+    .editor-screen,
+    .review-screen
+  ) {
+    inline-size: min(calc(100% - 2 * var(--page-gutter)), 72rem);
+    padding-block: var(--space-6) var(--space-4);
+  }
+
+  :is(
+    .profile-screen,
+    .create-screen,
+    .theme-screen,
+    .editor-screen,
+    .review-screen
+  ) > .page-heading {
+    block-size: 10.6875rem;
+    min-block-size: 10.6875rem;
+    margin-block-end: var(--space-6);
+  }
+
+  .setup-frame {
+    block-size: calc(100svh - 15rem);
+  }
+
+  .profile-workspace {
+    grid-template-columns: minmax(12rem, 14rem) minmax(0, 1fr);
+    gap: var(--space-6);
+  }
+
+  .profile-controls {
+    gap: var(--space-2);
+  }
+
+  .avatar-layers {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+
+  .avatar-layers .layer-control {
+    position: relative;
+    display: block;
+    min-block-size: var(--control-sm);
+    padding-inline-start: 8.75rem;
+  }
+
+  .avatar-layers .layer-control > legend {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: 0;
+    inline-size: 8rem;
+    padding: 0;
+    margin: 0;
+    translate: 0 -50%;
+  }
+
+  .avatar-layers .segmented {
+    min-block-size: var(--control-sm);
+  }
+}
+
 @media (max-width: 1023px) and (orientation: landscape) and (max-height: 560px) {
   .prototype-switcher {
     position: relative;
@@ -766,7 +903,7 @@
     padding: var(--space-2);
   }
 
-  .game-page--drawer .play-column {
+  .game-page--drawer:not(.game-page--selecting) .play-column {
     padding-block-end: 8.5rem;
   }
 
@@ -788,6 +925,35 @@
     position: static;
   }
 
+  .word-select-layer {
+    inset: 0;
+    place-items: center end;
+    padding: var(--space-2);
+  }
+
+  .word-select-dialog {
+    inline-size: min(34rem, 72vw);
+    max-block-size: calc(100dvh - 2 * var(--space-2));
+    padding: var(--space-3);
+    border-block-end: var(--border-standard) solid var(--color-ink);
+    border-radius: var(--radius-xl);
+  }
+
+  .word-select-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .word-choice-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .word-choice-list button {
+    min-block-size: 4.5rem;
+    grid-template-columns: minmax(0, 1fr);
+    place-items: center;
+    text-align: center;
+  }
+
   .sheet {
     inline-size: min(34rem, 52vw);
     max-block-size: 100vh;
@@ -795,5 +961,311 @@
     border-block-end: var(--border-standard) solid var(--color-ink);
     border-inline-end: 0;
     border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+  }
+}
+
+/* Viewport-contained setup flow */
+.app-shell--setup {
+  --setup-heading-block: 10.5rem;
+  --setup-heading-gap: var(--space-6);
+
+  block-size: 100svh;
+  min-block-size: 0;
+  padding-block-end: 0;
+  overflow: hidden;
+}
+
+.app-shell--setup > .page-shell {
+  display: grid;
+  grid-template-rows: var(--setup-heading-block) minmax(0, 1fr);
+  row-gap: var(--setup-heading-gap);
+  block-size: 100%;
+  min-block-size: 0;
+  padding-block: clamp(var(--space-4), 3vh, var(--space-8));
+}
+
+.app-shell--setup > .page-shell > .page-heading {
+  grid-row: 1;
+  block-size: 100%;
+  min-block-size: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.app-shell--setup > .page-shell > .page-heading .lede {
+  max-inline-size: none;
+}
+
+.app-shell--setup .setup-frame {
+  grid-row: 2;
+  align-self: start;
+  block-size: 100%;
+  max-block-size: 56rem;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.app-shell--setup .setup-flow__stage {
+  min-block-size: 0;
+}
+
+.app-shell--setup .profile-screen .setup-flow__stage {
+  overflow: hidden;
+}
+
+@media (min-width: 1180px) {
+  .app-shell--setup > .page-shell {
+    inline-size: min(calc(100% - 2 * var(--page-gutter)), 72rem);
+  }
+
+  .profile-screen .profile-workspace {
+    grid-template-columns: minmax(12rem, 14rem) minmax(0, 1fr);
+    gap: var(--space-6);
+  }
+
+  .profile-screen .profile-controls {
+    gap: var(--space-2);
+  }
+
+  .profile-screen .avatar-layers {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+
+  .profile-screen .avatar-layers .layer-control {
+    position: relative;
+    display: block;
+    min-block-size: var(--control-sm);
+    padding-inline-start: 8.75rem;
+  }
+
+  .profile-screen .avatar-layers .layer-control > legend {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: 0;
+    inline-size: 8rem;
+    padding: 0;
+    margin: 0;
+    translate: 0 -50%;
+  }
+
+  .profile-screen .avatar-layers .segmented {
+    min-block-size: var(--control-sm);
+  }
+}
+
+@media (max-width: 1179px), (max-height: 799px) {
+  .profile-screen .avatar-layers {
+    display: none;
+  }
+
+  .profile-screen .avatar-compact-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .profile-screen .profile-workspace {
+    grid-template-columns: minmax(10rem, 12rem) minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .profile-screen .profile-controls {
+    gap: var(--space-2);
+  }
+
+  .profile-screen .avatar-preview-panel {
+    position: static;
+    gap: var(--space-1);
+    padding: var(--space-3);
+  }
+
+  .profile-screen .avatar-preview-panel .avatar {
+    inline-size: 7rem;
+    block-size: 7rem;
+  }
+
+  .profile-screen .profile-controls > .field .field__message {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    border: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+@media (max-height: 949px) {
+  .app-shell--setup {
+    --setup-heading-block: 8.75rem;
+    --setup-heading-gap: var(--space-4);
+  }
+
+  .app-shell--setup > .page-shell {
+    padding-block: var(--space-4);
+  }
+
+  .app-shell--setup > .page-shell > .page-heading {
+    min-block-size: 0;
+  }
+
+  .app-shell--setup > .page-shell > .page-heading h1 {
+    font-size: var(--text-3xl);
+  }
+
+  .app-shell--setup > .page-shell > .page-heading .lede {
+    font-size: var(--text-body);
+  }
+}
+
+@media (max-width: 767px) {
+  .app-shell--setup {
+    --setup-heading-block: 5.5rem;
+    --setup-heading-gap: var(--space-2);
+  }
+
+  .app-shell--setup > .page-shell {
+    padding:
+      max(var(--space-2), var(--safe-top))
+      max(var(--space-2), var(--safe-right))
+      max(var(--space-2), var(--safe-bottom))
+      max(var(--space-2), var(--safe-left));
+  }
+
+  .app-shell--setup > .page-shell > .page-heading {
+    min-block-size: 0;
+  }
+
+  .app-shell--setup > .page-shell > .page-heading .page-kicker,
+  .app-shell--setup > .page-shell > .page-heading .lede {
+    display: none;
+  }
+
+  .app-shell--setup > .page-shell > .page-heading h1 {
+    margin: 0;
+    font-size: clamp(2rem, 10vw, 2.75rem);
+  }
+
+  .app-shell--setup .setup-frame {
+    block-size: 100%;
+    min-block-size: 0;
+    padding: var(--space-2);
+    gap: var(--space-2);
+    overflow: hidden;
+  }
+
+  .app-shell--setup .setup-frame > .setup-flow__stage {
+    min-block-size: 0;
+    padding-inline-end: 0;
+    overflow: auto;
+  }
+
+  .app-shell--setup .profile-screen .setup-flow__stage {
+    overflow: hidden;
+  }
+
+  .profile-screen .profile-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: var(--space-2);
+    block-size: 100%;
+  }
+
+  .profile-screen .avatar-preview-panel {
+    display: grid;
+    grid-template-rows: repeat(3, auto);
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    justify-items: start;
+    column-gap: var(--space-3);
+    padding: var(--space-2);
+    text-align: start;
+  }
+
+  .profile-screen .avatar-preview-panel .avatar {
+    grid-row: 1 / 4;
+    grid-column: 1;
+    inline-size: 4rem;
+    block-size: 4rem;
+  }
+
+  .profile-screen .avatar-preview-panel > :not(.avatar) {
+    grid-column: 2;
+    margin: 0;
+  }
+
+  .profile-screen .profile-controls {
+    gap: var(--space-2);
+  }
+
+  .profile-screen .setup-frame__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-block-start: var(--space-2);
+  }
+
+  .profile-screen .setup-frame__actions .button {
+    inline-size: 100%;
+    min-inline-size: 0;
+    gap: var(--space-1);
+    padding-inline: var(--space-2);
+    white-space: nowrap;
+  }
+}
+
+@media (max-height: 650px) {
+  .app-shell--setup {
+    --setup-heading-block: 0px;
+    --setup-heading-gap: 0px;
+  }
+
+  .app-shell--setup > .page-shell > .page-heading {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    min-block-size: 0;
+    padding: 0;
+    border: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .app-shell--setup .setup-steps li {
+    min-block-size: 2.25rem;
+    padding: var(--space-1);
+  }
+
+  .app-shell--setup .setup-steps li > span {
+    inline-size: 2rem;
+    block-size: 2rem;
+  }
+
+  .app-shell--setup .setup-steps li strong,
+  .app-shell--setup .setup-steps li > svg {
+    display: none;
+  }
+
+  .profile-screen .profile-controls > .field > label,
+  .profile-screen .avatar-compact-controls .field > label {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    border: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+@media (max-height: 479px) {
+  .profile-screen .avatar-preview-panel {
+    display: none;
   }
 }

@@ -33,7 +33,8 @@ const PROTOTYPE_STATES = [
   { group: "Themes", id: "theme-editor", label: "Custom theme editor" },
   { group: "Lobby", id: "lobby-host", label: "Lobby · host" },
   { group: "Lobby", id: "lobby-guest", label: "Lobby · guest" },
-  { group: "Game", id: "word-select", label: "Drawer word selection" },
+  { group: "Game", id: "word-select-guesser", label: "Game · guesser while drawer chooses" },
+  { group: "Game", id: "word-select", label: "Game · drawer choosing word" },
   { group: "Game", id: "game-drawer", label: "Game · active drawer" },
   { group: "Game", id: "game-guesser", label: "Game · active guesser" },
   { group: "Game", id: "game-close", label: "Game · private close guess" },
@@ -134,7 +135,8 @@ function App() {
     case "theme-editor": content = <ThemeEditorScreen {...common} />; break;
     case "lobby-host": content = <LobbyScreen {...common} role="host" />; break;
     case "lobby-guest": content = <LobbyScreen {...common} role="guest" />; break;
-    case "word-select": content = <WordSelectionScreen {...common} />; break;
+    case "word-select-guesser": content = <WordSelectionScreen {...common} role="guesser" />; break;
+    case "word-select": content = <WordSelectionScreen {...common} role="drawer" />; break;
     case "game-drawer": content = <GameScreen {...common} mode="drawer" />; break;
     case "game-guesser": content = <GameScreen {...common} mode="guesser" />; break;
     case "game-close": content = <GameScreen {...common} mode="close" />; break;

@@ -525,6 +525,73 @@ describe("GameEngine", () => {
     await engine.stop();
   });
 
+  it("hands the next drawer word choices immediately after a turn ends", async () => {
+    const { engine, transport } = await createFixture();
+    const { code } = await createTwoPlayerGame(engine);
+    await engine.startMatch("socket-host", "start-match-0001");
+    const firstTurnId = engine.inspectRoom(code)!.round!.turnId;
+    await engine.selectWord(
+      "socket-host",
+      "select-word-0001",
+      firstTurnId,
+      0,
+    );
+
+    transport.deliveries.length = 0;
+    await engine.submitGuess(
+      "socket-guest",
+      "guess-right-0001",
+      firstTurnId,
+      "elephant",
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    const room = engine.inspectRoom(code)!;
+    expect(room.phase).toBe("selecting");
+    expect(room.round?.turnId).not.toBe(firstTurnId);
+    expect(
+      room.players.find((player) => player.id === room.round?.drawerId)?.name,
+    ).toBe("Noah");
+
+    const endedEventIndex = transport.deliveries.findIndex(
+      (delivery) => delivery.event === "round:ended",
+    );
+    const selectionEventIndex = transport.deliveries.findIndex(
+      (delivery) => delivery.event === "round:selection-started",
+    );
+    const privateSelection = transport.deliveries.find(
+      (delivery) =>
+        delivery.event === "round:private" &&
+        delivery.target.kind === "socket" &&
+        delivery.target.socketId === "socket-guest",
+    );
+    expect(endedEventIndex).toBeGreaterThanOrEqual(0);
+    expect(selectionEventIndex).toBeGreaterThan(endedEventIndex);
+    expect(privateSelection?.payload).toMatchObject({
+      privateRound: {
+        turnId: room.round?.turnId,
+        answer: null,
+      },
+    });
+    expect(
+      (
+        privateSelection?.payload as {
+          privateRound?: { wordChoices?: unknown[] };
+        }
+      ).privateRound?.wordChoices,
+    ).toHaveLength(3);
+    await expect(
+      engine.selectWord(
+        "socket-host",
+        "stale-select-word1",
+        firstTurnId,
+        0,
+      ),
+    ).rejects.toMatchObject({ code: "STALE_TURN" });
+
+    await engine.stop();
+  });
+
   it("orders multiple correct guessers and suppresses answer-equivalent follow-ups", async () => {
     const { engine, persistence } = await createFixture();
     const { code } = await createTwoPlayerGame(engine);
@@ -617,7 +684,7 @@ describe("GameEngine", () => {
     const drawer = engine.inspectRoom(code)?.players.find(
       (player) => player.name === "Maya",
     );
-    expect(engine.inspectRoom(code)?.phase).toBe("turn-results");
+    expect(engine.inspectRoom(code)?.phase).toBe("selecting");
     expect(drawer?.score).toBe(75);
 
     await engine.stop();
@@ -652,8 +719,7 @@ describe("GameEngine", () => {
     ).toBe(true);
 
     await vi.advanceTimersByTimeAsync(80_001);
-    expect(engine.inspectRoom(code)?.phase).toBe("turn-results");
-    await vi.advanceTimersByTimeAsync(6_001);
+    expect(engine.inspectRoom(code)?.phase).toBe("selecting");
     expect(engine.inspectRoom(code)?.turnOrder).toContain(latePlayerId);
 
     await engine.stop();
@@ -1010,8 +1076,8 @@ describe("GameEngine", () => {
     );
 
     await vi.advanceTimersByTimeAsync(20_001);
-    expect(recoveredEngine.inspectRoom(code)?.phase).toBe("turn-results");
-    expect(recoveredEngine.inspectRoom(code)?.round?.pausedUntil).toBeNull();
+    expect(recoveredEngine.inspectRoom(code)?.phase).toBe("final-results");
+    expect(recoveredEngine.inspectRoom(code)?.round).toBeNull();
 
     await recoveredEngine.stop();
   });

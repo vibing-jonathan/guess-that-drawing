@@ -245,22 +245,30 @@ function RoomCode({ code = "SKETCH", onCopy, copied = false }) {
 }
 
 function PlayerRow({ player, rank, showKick = false, onKick }) {
-  const { name, score, delta, status, isHost, isYou, isDrawer, avatar = {} } = player;
+  const { name, score, delta, status, isHost, isYou, isDrawer, drawerStatus = "Drawing", avatar = {} } = player;
+  const hasKickAction = showKick && !isHost && !isYou;
+  const rowClasses = [
+    "player-row",
+    isYou ? "player-row--you" : "",
+    isDrawer ? "player-row--drawer" : "",
+    rank !== undefined ? "player-row--ranked" : "",
+    hasKickAction ? "player-row--kickable" : ""
+  ].filter(Boolean).join(" ");
   return (
-    <li className={`player-row ${isYou ? "player-row--you" : ""}`} data-od-id={`player-${name.toLowerCase().replace(/\W+/g, "-")}`}>
+    <li className={rowClasses} data-od-id={`player-${name.toLowerCase().replace(/\W+/g, "-")}`}>
       {rank ? <span className="player-row__rank numeric">{rank}</span> : null}
       <Avatar name={name} size={44} {...avatar} />
       <div className="player-row__identity">
         <strong>{name}{isYou ? " · You" : ""}</strong>
         <span className="player-row__meta">
-          {isHost ? <><Icon name="crown" size={14} /> Host</> : null}
-          {isDrawer ? <><Icon name="pencil" size={14} /> Drawing</> : null}
-          {!isHost && !isDrawer ? <><Icon name={status === "reconnecting" ? "wifiOff" : "wifi"} size={14} /> {status === "reconnecting" ? "Reconnecting" : status || "Ready"}</> : null}
+          {isHost ? <span className="player-row__role"><Icon name="crown" size={14} /><span>Host</span></span> : null}
+          {isDrawer ? <span className="player-row__turn-badge"><Icon name="pencil" size={14} /><span>{drawerStatus}</span></span> : null}
+          {!isHost && !isDrawer ? <span className="player-row__role"><Icon name={status === "reconnecting" ? "wifiOff" : "wifi"} size={14} /><span>{status === "reconnecting" ? "Reconnecting" : status || "Ready"}</span></span> : null}
         </span>
       </div>
       {delta ? <span className="player-row__delta numeric">+{delta}</span> : null}
       {typeof score === "number" ? <strong className="player-row__score numeric">{score}</strong> : null}
-      {showKick && !isHost && !isYou ? (
+      {hasKickAction ? (
         <IconButton icon="logOut" label={`Remove ${name} from room`} tooltip={`Kick ${name}`} onClick={() => onKick?.(name)} />
       ) : null}
     </li>
@@ -428,6 +436,7 @@ function DrawingToolbar({ disabled = false, onClear }) {
 function ChatPanel({
   mode = "guesser",
   guessed = false,
+  selecting = false,
   titleId = "chat-title",
   inputId = "guess-input",
   odId = "chat-panel"
@@ -460,7 +469,15 @@ function ChatPanel({
         <div className="chat-message"><strong>Amara</strong><span>coast guard?</span><time>8:43</time></div>
         {sent ? <div className="chat-message chat-message--own"><strong>You</strong><span>Your mock guess was sent.</span><time>now</time></div> : null}
       </div>
-      {mode === "drawer" ? (
+      {selecting ? (
+        <div className="composer composer--disabled">
+          <Icon name="clock" size={20} />
+          <div>
+            <strong>{mode === "drawer" ? "Choose a word to start the turn" : "Guesses open when drawing begins"}</strong>
+            <span>{mode === "drawer" ? "Your choices stay private." : "The canvas is ready while Maya chooses."}</span>
+          </div>
+        </div>
+      ) : mode === "drawer" ? (
         <div className="composer composer--disabled">
           <Icon name="lock" size={20} />
           <div><strong>Chat is paused while you draw</strong><span>Keep the word secret until the turn ends.</span></div>
@@ -531,7 +548,7 @@ function ConfirmDialog({ open, title, description, confirmLabel, tone = "danger"
   );
 }
 
-function MobileSupport({ players, mode, guessed }) {
+function MobileSupport({ players, mode, guessed, selecting = false }) {
   const [sheet, setSheet] = useState(null);
   const closeRef = useRef(null);
   const sheetRef = useRef(null);
@@ -581,6 +598,7 @@ function MobileSupport({ players, mode, guessed }) {
               <ChatPanel
                 mode={mode}
                 guessed={guessed}
+                selecting={selecting}
                 titleId="mobile-chat-title"
                 inputId="mobile-sheet-guess-input"
                 odId="mobile-chat-panel"

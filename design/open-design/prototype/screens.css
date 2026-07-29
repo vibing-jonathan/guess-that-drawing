@@ -675,7 +675,7 @@
 }
 
 .game-shell .player-row {
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .game-shell .player-row__rank {
@@ -704,6 +704,9 @@
 
 .round-context {
   display: grid;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow: hidden;
   line-height: 1.2;
 }
 
@@ -713,7 +716,10 @@
 }
 
 .round-context strong {
+  overflow: hidden;
   font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .guesser-action-row {
@@ -752,34 +758,27 @@
   font-size: var(--text-xl);
 }
 
-.game-page--selection {
-  position: relative;
-  inline-size: 100%;
-  min-block-size: calc(100vh - 4rem);
-  padding: var(--space-4) var(--page-gutter);
-}
-
-.game-selection-shell {
-  display: grid;
-  gap: var(--space-3);
-  max-inline-size: 72rem;
-  margin-inline: auto;
-  opacity: 0.45;
-}
-
 .word-select-layer {
+  --word-dialog-top: clamp(7.5rem, 12dvh, 9rem);
+
   position: fixed;
   z-index: var(--z-dialog);
-  inset: 4rem 0 0;
+  inset: 0;
   display: grid;
-  place-items: center;
-  padding: var(--space-4);
-  background: var(--color-scrim);
+  place-items: start center;
+  padding:
+    var(--word-dialog-top)
+    var(--space-4)
+    var(--space-4);
+  background: color-mix(in oklch, var(--color-ink) 18%, transparent);
 }
 
 .word-select-dialog {
-  inline-size: min(100%, 46rem);
-  padding: clamp(var(--space-5), 4vw, var(--space-8));
+  inline-size: min(100%, 40rem);
+  max-block-size:
+    calc(100dvh - var(--word-dialog-top) - var(--space-4));
+  padding: clamp(var(--space-4), 2.5vw, var(--space-6));
+  overflow-y: auto;
   border: var(--border-standard) solid var(--color-ink);
   border-radius: var(--radius-xl);
   background: var(--color-surface);
@@ -793,26 +792,28 @@
   gap: var(--space-6);
 }
 
-.word-select-heading h1 {
+.word-select-heading h2 {
   margin-block-end: var(--space-2);
-  font-size: var(--text-3xl);
+  font-size: var(--text-2xl);
 }
 
 .word-select-heading p {
+  max-inline-size: 34ch;
   margin-block-end: 0;
   color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
 .word-choice-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
-  margin-block: var(--space-6);
+  margin-block: var(--space-4);
 }
 
 .word-choice-list button {
   display: grid;
-  min-block-size: 8rem;
+  min-block-size: 6.5rem;
   place-items: center;
   gap: var(--space-2);
   padding: var(--space-4);
@@ -821,6 +822,7 @@
   background: var(--color-surface);
   color: var(--color-ink);
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .word-choice-list button:hover {
@@ -846,6 +848,10 @@
 
 .word-choice-list .is-selected small {
   color: inherit;
+}
+
+.word-select-dialog .dialog__actions {
+  margin-block-start: var(--space-4);
 }
 
 .system-state-page {

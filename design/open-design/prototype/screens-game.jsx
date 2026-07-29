@@ -18,28 +18,44 @@ const { Icon: GameIcon } = window.GTDIcons;
 const { BASE_PLAYERS: GAME_BASE_PLAYERS } = window.GTDData;
 const { useEffect: useGameEffect, useRef: useGameRef, useState: useGameState } = React;
 
-function gamePlayersFor(mode) {
+function gamePlayersFor(mode, phase = "drawing") {
   return GAME_BASE_PLAYERS
     .map((player) => ({
       ...player,
       isDrawer: player.name === "Maya",
       isYou: mode === "drawer" ? player.name === "Maya" : player.name === "Priya",
+      drawerStatus: player.name === "Maya" ? (phase === "selecting" ? "Choosing" : "Drawing") : undefined,
       status: mode === "guessed" && player.name === "Priya" ? "Guessed" : player.status
     }))
     .sort((a, b) => b.score - a.score);
 }
 
-function GameStatusBar({ mode, networkState }) {
+function GameStatusBar({ mode, phase = "drawing", networkState }) {
   const isDrawer = mode === "drawer";
+  const selecting = phase === "selecting";
   const paused = networkState === "paused";
+  const seconds = selecting ? 15 : paused ? 23 : isDrawer ? 64 : 47;
+  const total = selecting ? 15 : paused ? 30 : 90;
+  const timerLabel = selecting
+    ? "seconds for Maya to choose a word"
+    : paused
+      ? "seconds until round resumes or ends"
+      : "seconds remaining";
   return (
     <header className="game-statusbar" data-od-id="game-status">
       <div className="round-context">
         <span className="eyebrow">Cycle 2 of 3</span>
-        <strong>Turn 4 · Maya draws</strong>
+        <strong>Turn 4 · Maya {selecting ? "chooses" : "draws"}</strong>
       </div>
-      <GameMaskedWord drawer={isDrawer} />
-      <GameTimer seconds={paused ? 23 : isDrawer ? 64 : 47} total={paused ? 30 : 90} label={paused ? "seconds until round resumes or ends" : "seconds remaining"} />
+      {selecting ? (
+        <div className="word-display word-display--pending" aria-label="The word has not been chosen yet">
+          <span>New turn</span>
+          <strong>Word not chosen</strong>
+        </div>
+      ) : (
+        <GameMaskedWord drawer={isDrawer} />
+      )}
+      <GameTimer seconds={seconds} total={total} label={timerLabel} />
       <GameStatusBadge
         tone={networkState === "reconnecting" || paused ? "warning" : "success"}
         icon={networkState === "reconnecting" ? "refresh" : paused ? "wifiOff" : "wifi"}
@@ -50,17 +66,39 @@ function GameStatusBar({ mode, networkState }) {
   );
 }
 
-function WordSelectionScreen({ onNavigate }) {
+function EmptyTurnCanvas() {
+  return (
+    <figure
+      className="drawing-canvas drawing-canvas--waiting"
+      aria-disabled="true"
+      aria-labelledby="waiting-canvas-caption"
+      data-od-id="drawing-canvas"
+    >
+      <figcaption id="waiting-canvas-caption" className="sr-only">
+        Empty drawing canvas. Drawing begins after Maya chooses a word.
+      </figcaption>
+    </figure>
+  );
+}
+
+function WordChoiceDialog({ onNavigate }) {
   const [choice, setChoice] = useGameState(null);
   const dialogRef = useGameRef(null);
   const words = ["Lighthouse", "Roller skates", "Picnic basket"];
   useGameEffect(() => {
-    const firstChoice = dialogRef.current?.querySelector(".word-choice-list button");
-    firstChoice?.focus();
+    const focusFrame = window.requestAnimationFrame(() => {
+      dialogRef.current?.querySelector(".word-choice-list button")?.focus();
+    });
     const handler = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        dialogRef.current?.querySelector(".word-choice-list button[tabindex='0']")?.focus();
+        return;
+      }
       if (event.key !== "Tab") return;
-      const focusable = dialogRef.current?.querySelectorAll("button:not(:disabled)");
-      if (!focusable?.length) return;
+      const focusable = [...(dialogRef.current?.querySelectorAll("button:not(:disabled)") || [])]
+        .filter((control) => control.tabIndex >= 0);
+      if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) {
@@ -72,64 +110,79 @@ function WordSelectionScreen({ onNavigate }) {
       }
     };
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", handler);
+    };
   }, []);
   return (
-    <main id="main-content" className="game-page game-page--selection" aria-labelledby="word-select-title" data-od-id="word-selection-screen">
-      <div className="game-selection-shell">
-        <GameStatusBar mode="drawer" />
-        <GameStaticDrawing dimmed />
-      </div>
-      <div className="word-select-layer">
-        <section ref={dialogRef} className="word-select-dialog" role="dialog" aria-modal="true" aria-labelledby="word-select-title" aria-describedby="word-select-description">
-          <div className="word-select-heading">
-            <div>
-              <span className="eyebrow">You’re drawing first</span>
-              <h1 id="word-select-title">Choose a word</h1>
-              <p id="word-select-description">The other players will only see the letter count.</p>
-            </div>
-            <GameTimer seconds={15} total={15} label="seconds to choose a word" />
+    <div className="word-select-layer" role="presentation">
+      <section
+        ref={dialogRef}
+        className="word-select-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="word-select-title"
+        aria-describedby="word-select-description"
+        data-od-id="word-choice-dialog"
+      >
+        <div className="word-select-heading">
+          <div>
+            <span className="eyebrow">Your turn to draw</span>
+            <h2 id="word-select-title">Choose a word</h2>
+            <p id="word-select-description">Choose one before drawing begins. Other players cannot see these options.</p>
           </div>
-          <div
-            className="word-choice-list"
-            role="radiogroup"
-            aria-label="Word choices"
-            onKeyDown={(event) => {
-              if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) return;
-              const controls = [...event.currentTarget.querySelectorAll("button")];
-              const currentIndex = Math.max(0, controls.indexOf(document.activeElement));
-              const nextIndex = event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? controls.length - 1
-                  : (currentIndex + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + controls.length) % controls.length;
-              event.preventDefault();
-              controls[nextIndex].focus();
-              controls[nextIndex].click();
-            }}
-          >
-            {words.map((word) => (
+          <GameTimer seconds={15} total={15} label="seconds to choose a word" />
+        </div>
+        <div
+          className="word-choice-list"
+          role="radiogroup"
+          aria-label="Word choices"
+          onKeyDown={(event) => {
+            if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            const controls = [...event.currentTarget.querySelectorAll("button")];
+            const currentIndex = Math.max(0, controls.indexOf(document.activeElement));
+            const nextIndex = event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? controls.length - 1
+                : (currentIndex + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + controls.length) % controls.length;
+            event.preventDefault();
+            controls[nextIndex].focus();
+            controls[nextIndex].click();
+          }}
+        >
+          {words.map((word, index) => {
+            const letterCount = word.replace(/\s/g, "").length;
+            const wordCount = word.trim().split(/\s+/).length;
+            return (
               <button
                 key={word}
                 type="button"
                 className={choice === word ? "is-selected" : ""}
                 role="radio"
                 aria-checked={choice === word}
+                tabIndex={choice === word || (!choice && index === 0) ? 0 : -1}
                 onClick={() => setChoice(word)}
               >
                 <span>{word}</span>
-                {choice === word ? <><GameIcon name="check" size={20} /><small>Selected</small></> : <small>{word.length} letters including spaces</small>}
+                {choice === word ? <GameIcon name="check" size={20} /> : null}
+                <small>{choice === word ? "Selected" : `${letterCount} letters${wordCount > 1 ? ` · ${wordCount} words` : ""}`}</small>
               </button>
-            ))}
-          </div>
-          <div className="dialog__actions cluster">
-            <GameButton variant="secondary" onClick={() => setChoice(null)}>Clear choice</GameButton>
-            <GameButton disabled={!choice} icon="arrowRight" onClick={() => onNavigate("game-drawer")}>Draw {choice || "selected word"}</GameButton>
-          </div>
-        </section>
-      </div>
-    </main>
+            );
+          })}
+        </div>
+        <div className="dialog__actions cluster">
+          <GameButton variant="secondary" onClick={() => setChoice(null)}>Clear choice</GameButton>
+          <GameButton disabled={!choice} icon="arrowRight" onClick={() => onNavigate("game-drawer")}>Draw {choice || "selected word"}</GameButton>
+        </div>
+      </section>
+    </div>
   );
+}
+
+function WordSelectionScreen({ role = "drawer", ...props }) {
+  return <GameScreen {...props} mode={role === "drawer" ? "drawer" : "guesser"} phase="selecting" />;
 }
 
 function NetworkBanner({ networkState, onNavigate, onRecovered }) {
@@ -174,7 +227,7 @@ function NetworkBanner({ networkState, onNavigate, onRecovered }) {
   return null;
 }
 
-function MobileGuessDock({ guessed, disabled, onAnnounce }) {
+function MobileGuessDock({ guessed, disabled, selecting = false, onAnnounce }) {
   const [guess, setGuess] = useGameState("");
   const submit = (event) => {
     event.preventDefault();
@@ -184,12 +237,12 @@ function MobileGuessDock({ guessed, disabled, onAnnounce }) {
   };
   return (
     <form className="mobile-guess-dock" onSubmit={submit}>
-      <label htmlFor="mobile-guess-input">{guessed ? "Correct guess recorded" : "Your guess"}</label>
+      <label htmlFor="mobile-guess-input">{selecting ? "Guessing opens when drawing begins" : guessed ? "Correct guess recorded" : "Your guess"}</label>
       <div>
         <input
           id="mobile-guess-input"
           value={guess}
-          placeholder={guessed ? "Answer-equivalent input suppressed" : "Type a guess"}
+          placeholder={selecting ? "Waiting for the drawing" : guessed ? "Answer-equivalent input suppressed" : "Type a guess"}
           disabled={guessed || disabled}
           onChange={(event) => setGuess(event.target.value)}
         />
@@ -199,14 +252,16 @@ function MobileGuessDock({ guessed, disabled, onAnnounce }) {
   );
 }
 
-function GameScreen({ mode = "guesser", networkState: initialNetwork = "connected", onNavigate, onAnnounce }) {
+function GameScreen({ mode = "guesser", phase = "drawing", networkState: initialNetwork = "connected", onNavigate, onAnnounce }) {
   const isDrawer = mode === "drawer";
+  const selecting = phase === "selecting";
+  const drawerChoosing = isDrawer && selecting;
   const closeFeedback = mode === "close";
   const guessed = mode === "guessed";
   const [clearDialog, setClearDialog] = useGameState(false);
   const [cleared, setCleared] = useGameState(false);
   const [networkState, setNetworkState] = useGameState(initialNetwork);
-  const players = gamePlayersFor(mode);
+  const players = gamePlayersFor(mode, phase);
   const disabled = networkState !== "connected";
   const clearCanvas = () => {
     setClearDialog(false);
@@ -218,12 +273,33 @@ function GameScreen({ mode = "guesser", networkState: initialNetwork = "connecte
     onAnnounce?.("Canvas clear undone.");
   };
   return (
-    <main id="main-content" className={`game-page game-page--${mode}`} aria-labelledby="game-heading" data-od-id={`game-${mode}-screen`}>
+    <main
+      id="main-content"
+      className={`game-page game-page--${mode} ${selecting ? "game-page--selecting" : "game-page--drawing"}`}
+      aria-labelledby="game-heading"
+      data-od-id={`game-${mode}-${phase}-screen`}
+    >
       <h1 id="game-heading" className="sr-only">
-        {isDrawer ? "Active drawer game room" : guessed ? "Already-guessed game room" : "Active guesser game room"}
+        {drawerChoosing
+          ? "Drawer choosing a word in the live game room"
+          : selecting
+            ? "Guesser view while Maya chooses a word"
+            : isDrawer
+              ? "Active drawer game room"
+              : guessed
+                ? "Already-guessed game room"
+                : "Active guesser game room"}
       </h1>
       <div className="game-live sr-only" aria-live="polite">
-        {isDrawer ? "You are drawing lighthouse." : guessed ? "You guessed correctly. The answer remains private." : "Maya is drawing. Enter your guess."}
+        {drawerChoosing
+          ? "Choose one of three words. The new turn canvas is empty."
+          : selecting
+            ? "Maya is choosing a word. The new turn canvas is empty."
+            : isDrawer
+              ? "You are drawing lighthouse."
+              : guessed
+                ? "You guessed correctly. The answer remains private."
+                : "Maya is drawing. Enter your guess."}
       </div>
       <NetworkBanner
         networkState={networkState}
@@ -243,18 +319,24 @@ function GameScreen({ mode = "guesser", networkState: initialNetwork = "connecte
           The clear remains reversible until the next drawing action.
         </GameBanner>
       ) : null}
-      <div className="game-shell">
+      <div className="game-shell" inert={drawerChoosing ? "" : undefined}>
         <GamePlayersPanel players={players} ranked />
         <section className="play-column" aria-label="Current drawing turn">
-          <GameStatusBar mode={isDrawer ? "drawer" : "guesser"} networkState={networkState} />
-          {cleared ? (
+          <GameStatusBar mode={isDrawer ? "drawer" : "guesser"} phase={phase} networkState={networkState} />
+          {selecting ? (
+            <EmptyTurnCanvas />
+          ) : cleared ? (
             <figure className="drawing-canvas drawing-canvas--cleared" data-od-id="drawing-canvas">
               <div><GameIcon name="undo" size={36} /><strong>Canvas cleared</strong><span>Use Undo clear to restore the previous static drawing.</span></div>
             </figure>
           ) : (
             <GameStaticDrawing dimmed={disabled} revealSubject={isDrawer} />
           )}
-          {isDrawer ? (
+          {selecting ? (
+            <div className="guesser-action-row">
+              <span className="canvas-caption"><GameIcon name="clock" size={18} /> Canvas ready · Maya is choosing a word</span>
+            </div>
+          ) : isDrawer ? (
             <GameDrawingToolbar disabled={disabled} onClear={() => setClearDialog(true)} />
           ) : (
             <div className="guesser-action-row">
@@ -283,11 +365,12 @@ function GameScreen({ mode = "guesser", networkState: initialNetwork = "connecte
               )}
             </div>
           )}
-          {!isDrawer ? <MobileGuessDock guessed={guessed} disabled={disabled} onAnnounce={onAnnounce} /> : null}
-          <GameMobileSupport players={players} mode={isDrawer ? "drawer" : "guesser"} guessed={guessed} />
+          {!isDrawer ? <MobileGuessDock guessed={guessed} disabled={disabled || selecting} selecting={selecting} onAnnounce={onAnnounce} /> : null}
+          <GameMobileSupport players={players} mode={isDrawer ? "drawer" : "guesser"} guessed={guessed} selecting={selecting} />
         </section>
-        <GameChatPanel mode={isDrawer ? "drawer" : "guesser"} guessed={guessed} />
+        <GameChatPanel mode={isDrawer ? "drawer" : "guesser"} guessed={guessed} selecting={selecting} />
       </div>
+      {drawerChoosing ? <WordChoiceDialog onNavigate={onNavigate} /> : null}
       <GameConfirmDialog
         open={clearDialog}
         title="Clear the canvas?"

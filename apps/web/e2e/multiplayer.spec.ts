@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   chooseDrawableWord,
@@ -11,6 +11,41 @@ import {
   startMatch,
   submitGuess,
 } from "./helpers";
+
+async function expectActiveDrawer(page: Page, name: string): Promise<void> {
+  const activeDrawer = page.locator(
+    '.player-row[aria-current="true"]',
+  );
+  await expect(activeDrawer).toHaveCount(1);
+  await expect(activeDrawer).toContainText(name);
+  await expect(activeDrawer).toHaveClass(/player-row--drawer/);
+}
+
+async function expectLiveGuesserGame(
+  page: Page,
+  drawerName: string,
+): Promise<void> {
+  await expect(page.getByRole("region", { name: "Players" })).toBeVisible();
+  await expect(page.getByTestId("drawing-canvas-main")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Guesses & chat" }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByText("The drawer is choosing", { exact: true }),
+  ).toHaveCount(0);
+  await expectActiveDrawer(page, drawerName);
+}
+
+async function expectDrawerWordDialog(
+  page: Page,
+  timeout = 5_000,
+): Promise<void> {
+  await expect(
+    page.getByRole("dialog", { name: "Choose a word" }),
+  ).toBeVisible({ timeout });
+  await expect(page.getByTestId("drawing-canvas-main")).toBeVisible();
+}
 
 test.describe("multiplayer acceptance", () => {
   test.beforeEach(({}, testInfo) => {
@@ -52,7 +87,37 @@ test.describe("multiplayer acceptance", () => {
     }
   });
 
-  test("plays a complete two-player match with private close feedback", async ({
+  test("joins through a room link without stored credentials", async ({
+    browser,
+    page: host,
+  }) => {
+    const code = await createRoom(host, "Link Host", { cycles: 1 });
+    const guestPlayer = await createPlayerContext(browser);
+    try {
+      await guestPlayer.page.goto(`/room/${code}`);
+      await expect(
+        guestPlayer.page.getByRole("heading", {
+          name: "We couldn’t restore this room",
+        }),
+      ).toBeVisible();
+      await guestPlayer.page
+        .getByRole("button", { name: "Join this room" })
+        .click();
+      await expect(guestPlayer.page).toHaveURL(
+        new RegExp(`/join\\?code=${code}$`),
+      );
+      await guestPlayer.page.getByLabel("Display name").fill("Link Guest");
+      await guestPlayer.page.getByTestId("join-submit").click();
+      await expect(
+        guestPlayer.page.getByText("Guest lobby", { exact: true }),
+      ).toBeVisible();
+      await expect(guestPlayer.page.getByTestId("room-code")).toHaveText(code);
+    } finally {
+      await guestPlayer.context.close();
+    }
+  });
+
+  test("plays a complete two-player match with private close feedback and a seamless drawer handoff", async ({
     browser,
     page: host,
   }) => {
@@ -62,6 +127,8 @@ test.describe("multiplayer acceptance", () => {
     try {
       await joinRoom(guestPlayer.page, code, "Amara");
       await startMatch(host);
+      await expectDrawerWordDialog(host);
+      await expectLiveGuesserGame(guestPlayer.page, "Noah");
 
       const firstAnswer = await chooseDrawableWord(host);
       await expect(guestPlayer.page.getByTestId("guess-composer")).toBeVisible();
@@ -73,22 +140,23 @@ test.describe("multiplayer acceptance", () => {
       await expect(host.getByText(near, { exact: true })).toHaveCount(0);
 
       await submitGuess(guestPlayer.page, firstAnswer);
+      await expectDrawerWordDialog(guestPlayer.page, 2_000);
+      await expectLiveGuesserGame(host, "Amara");
       await expect(
         guestPlayer.page.getByRole("heading", { name: /The word was/ }),
-      ).toBeVisible();
+      ).toHaveCount(0);
 
-      await expect(
-        guestPlayer.page.getByRole("heading", { name: "Choose a word" }),
-      ).toBeVisible({ timeout: 12_000 });
       const secondAnswer = await chooseDrawableWord(guestPlayer.page);
+      await drawStroke(guestPlayer.page);
+      await expect(host.getByTestId("drawing-canvas-main")).toBeVisible();
+      await expect
+        .poll(() => opaquePixelCount(host), { timeout: 2_000 })
+        .toBeGreaterThan(0);
+
       await submitGuess(host, secondAnswer);
       await expect(
-        host.getByRole("heading", { name: /The word was/ }),
-      ).toBeVisible();
-
-      await expect(
         host.getByRole("heading", { name: /takes the table|Game complete/ }),
-      ).toBeVisible({ timeout: 12_000 });
+      ).toBeVisible({ timeout: 2_000 });
       await expect(
         guestPlayer.page.getByRole("heading", {
           name: /takes the table|Game complete/,

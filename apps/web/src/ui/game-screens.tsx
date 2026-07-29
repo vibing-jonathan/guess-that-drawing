@@ -35,13 +35,18 @@ import {
 } from "./primitives";
 import { LobbyScreen } from "./setup-screens";
 
-function WordSelectionScreen({ room }: { room: PlayerRoomSnapshot }) {
+function WordSelectionDialog({
+  room,
+  turnId,
+}: {
+  room: PlayerRoomSnapshot;
+  turnId: string;
+}) {
   const [choice, setChoice] = useState<number>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
-  const isDrawer = room.round?.drawerId === room.selfPlayerId;
   const choices =
-    isDrawer && room.privateRound?.turnId === room.round?.turnId
+    room.privateRound?.turnId === turnId
       ? room.privateRound?.wordChoices ?? []
       : [];
   const seconds = useCountdown(room.round?.selectionDeadline ?? null);
@@ -76,14 +81,14 @@ function WordSelectionScreen({ room }: { room: PlayerRoomSnapshot }) {
     };
     window.addEventListener("keydown", trapFocus);
     return () => window.removeEventListener("keydown", trapFocus);
-  }, [choices.length]);
+  }, [choices.length, turnId]);
 
   async function confirmChoice() {
-    if (choice === undefined || !room.round) return;
+    if (choice === undefined) return;
     setPending(true);
     setError(undefined);
     try {
-      await roomController.selectWord(room.round.turnId, choice);
+      await roomController.selectWord(turnId, choice);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Unable to select that word.",
@@ -93,122 +98,100 @@ function WordSelectionScreen({ room }: { room: PlayerRoomSnapshot }) {
     }
   }
 
-  const emptyDrawing =
-    room.drawing?.turnId === room.round?.turnId
-      ? room.drawing?.operations ?? []
-      : [];
-
   return (
-    <main
-      id="main-content"
-      className="game-page game-page--selection"
-      aria-labelledby="word-select-title"
-    >
-      <div className="game-selection-shell">
-        <GameStatusBar room={room} isDrawer={isDrawer} />
-        {room.round ? (
-          <CanvasBoard
-            turnId={room.round.turnId}
-            editable={false}
-            disabled
-            initialOperations={emptyDrawing}
-          />
-        ) : null}
-      </div>
-      <div className="word-select-layer">
-        <section
-          ref={dialogRef}
-          className="word-select-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="word-select-title"
-          aria-describedby="word-select-description"
-          tabIndex={-1}
-        >
-          <div className="word-select-heading">
-            <div>
-              <span className="eyebrow">
-                {isDrawer ? "You’re drawing" : "Next turn"}
-              </span>
-              <h1 id="word-select-title">
-                {isDrawer ? "Choose a word" : "The drawer is choosing"}
-              </h1>
-              <p id="word-select-description">
-                {isDrawer
-                  ? "The other players will only see the letter count."
-                  : "Your canvas will appear as soon as the secret word is chosen."}
-              </p>
-            </div>
-            <Timer
-              seconds={seconds}
-              total={room.settings.wordSelectionSeconds}
-              label="seconds to choose a word"
-            />
+    <div className="word-select-layer">
+      <section
+        ref={dialogRef}
+        className="word-select-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="word-select-title"
+        aria-describedby="word-select-description"
+        tabIndex={-1}
+      >
+        <div className="word-select-heading">
+          <div>
+            <span className="eyebrow">You’re drawing</span>
+            <h2 id="word-select-title">Choose a word</h2>
+            <p id="word-select-description">
+              The other players will only see the letter count.
+            </p>
           </div>
-          {error ? (
-            <Banner tone="danger" title="Selection failed" role="alert">
-              {error}
-            </Banner>
-          ) : null}
-          {isDrawer ? (
-            <>
-              <div
-                className="word-choice-list"
-                role="radiogroup"
-                aria-label="Word choices"
-              >
-                {choices.map((word, index) => (
-                  <button
-                    key={`${index}-${word}`}
-                    type="button"
-                    className={choice === index ? "is-selected" : ""}
-                    role="radio"
-                    aria-checked={choice === index}
-                    onClick={() => setChoice(index)}
-                    data-testid={`word-choice-${index}`}
-                    {...(index === 0 ? { ref: firstChoice } : {})}
-                  >
-                    <span>{word}</span>
-                    {choice === index ? (
-                      <>
-                        <Icon name="check" size={20} />
-                        <small>Selected</small>
-                      </>
-                    ) : (
-                      <small>{word.length} characters</small>
-                    )}
-                  </button>
-                ))}
-              </div>
-              <div className="dialog__actions cluster">
-                <Button variant="secondary" onClick={() => setChoice(undefined)}>
-                  Clear choice
-                </Button>
-                <Button
-                  disabled={choice === undefined || pending}
-                  icon="arrowRight"
-                  onClick={() => void confirmChoice()}
+          <Timer
+            seconds={seconds}
+            total={room.settings.wordSelectionSeconds}
+            label="seconds to choose a word"
+          />
+        </div>
+        {error ? (
+          <Banner tone="danger" title="Selection failed" role="alert">
+            {error}
+          </Banner>
+        ) : null}
+        {choices.length ? (
+          <>
+            <div
+              className="word-choice-list"
+              role="radiogroup"
+              aria-label="Word choices"
+            >
+              {choices.map((word, index) => (
+                <button
+                  key={`${index}-${word}`}
+                  type="button"
+                  className={choice === index ? "is-selected" : ""}
+                  role="radio"
+                  aria-checked={choice === index}
+                  onClick={() => setChoice(index)}
+                  data-testid={`word-choice-${index}`}
+                  {...(index === 0 ? { ref: firstChoice } : {})}
                 >
-                  {pending ? "Starting turn…" : "Draw selected word"}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <div className="waiting-status" role="status" aria-live="polite">
-              <Icon name="clock" size={22} />
-              <div>
-                <strong>Word selection is private</strong>
-                <span>Get ready to guess.</span>
-              </div>
+                  <span>{word}</span>
+                  {choice === index ? (
+                    <>
+                      <Icon name="check" size={20} />
+                      <small>Selected</small>
+                    </>
+                  ) : (
+                    <small>{word.length} characters</small>
+                  )}
+                </button>
+              ))}
             </div>
-          )}
-        </section>
-      </div>
-    </main>
+            <div className="dialog__actions cluster">
+              <Button variant="secondary" onClick={() => setChoice(undefined)}>
+                Clear choice
+              </Button>
+              <Button
+                disabled={choice === undefined || pending}
+                icon="arrowRight"
+                onClick={() => void confirmChoice()}
+              >
+                {pending ? "Starting turn…" : "Draw selected word"}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="waiting-status" role="status" aria-live="polite">
+            <Icon name="clock" size={22} />
+            <div>
+              <strong>Loading your word choices</strong>
+              <span>Your private choices will appear here.</span>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
-function GameScreen({ room }: { room: PlayerRoomSnapshot }) {
+function GameScreen({
+  room,
+  frozen = false,
+}: {
+  room: PlayerRoomSnapshot;
+  frozen?: boolean;
+}) {
   const round = room.round!;
   const isDrawer = round.drawerId === room.selfPlayerId;
   const isHost = room.players.some(
@@ -228,34 +211,57 @@ function GameScreen({ room }: { room: PlayerRoomSnapshot }) {
   const operations =
     room.drawing?.turnId === round.turnId ? room.drawing.operations : [];
   const disabled =
+    frozen ||
+    room.phase !== "drawing" ||
     connection !== "connected" ||
     sync !== "synced" ||
     drawingSync === "gap" ||
     drawingSync === "replaying" ||
     round.pausedUntil !== null;
   const self = room.players.find((player) => player.id === room.selfPlayerId);
+  const drawer = room.players.find((player) => player.id === round.drawerId);
+  const selecting = room.phase === "selecting";
+  const showWordDialog = selecting && isDrawer && !frozen;
+  const pageRole =
+    room.phase === "drawing"
+      ? isDrawer
+        ? "drawer"
+        : self?.hasGuessed
+          ? "guessed"
+          : "guesser"
+      : selecting
+        ? "selecting"
+        : "handoff";
+  const liveMessage = selecting
+    ? drawer
+      ? `${drawer.name} is choosing a word.`
+      : "Word selection is in progress."
+    : correctEvents.at(-1)
+      ? `${correctEvents.at(-1)!.playerName} guessed correctly.`
+      : isDrawer
+        ? "You are drawing."
+        : "Enter your guess.";
 
   return (
-    <main
-      id="main-content"
-      className={`game-page game-page--${
-        isDrawer ? "drawer" : self?.hasGuessed ? "guessed" : "guesser"
-      }`}
-      aria-labelledby="game-heading"
-    >
+    <>
+      <main
+        id="main-content"
+        className={`game-page game-page--${pageRole}`}
+        aria-labelledby="game-heading"
+        aria-busy={frozen}
+        inert={frozen || showWordDialog}
+      >
       <h1 id="game-heading" className="sr-only">
-        {isDrawer
-          ? "Active drawer game room"
-          : self?.hasGuessed
-            ? "Already-guessed game room"
-            : "Active guesser game room"}
+        {selecting
+          ? "Word selection game room"
+          : isDrawer
+            ? "Active drawer game room"
+            : self?.hasGuessed
+              ? "Already-guessed game room"
+              : "Active guesser game room"}
       </h1>
       <div className="game-live sr-only" aria-live="polite">
-        {correctEvents.at(-1)
-          ? `${correctEvents.at(-1)!.playerName} guessed correctly.`
-          : isDrawer
-            ? "You are drawing."
-            : "Enter your guess."}
+        {liveMessage}
       </div>
       <NetworkBanner round={round} />
       <div className="game-shell">
@@ -263,16 +269,31 @@ function GameScreen({ room }: { room: PlayerRoomSnapshot }) {
           players={room.players}
           selfId={room.selfPlayerId}
           ranked
+          activeDrawerId={
+            selecting || room.phase === "drawing" ? round.drawerId : null
+          }
+          {...(selecting || room.phase === "drawing"
+            ? {
+                activeDrawerStatus: round.pausedUntil
+                  ? ("Reconnecting" as const)
+                  : selecting
+                    ? ("Choosing" as const)
+                    : ("Drawing" as const),
+              }
+            : {})}
         />
-        <section className="play-column" aria-label="Current drawing turn">
+        <section
+          className="play-column"
+          aria-label={selecting ? "Word selection turn" : "Current drawing turn"}
+        >
           <GameStatusBar room={room} isDrawer={isDrawer} />
           <CanvasBoard
             turnId={round.turnId}
-            editable={isDrawer}
+            editable={isDrawer && room.phase === "drawing"}
             disabled={disabled}
             initialOperations={operations}
           />
-          {!isDrawer ? (
+          {room.phase === "drawing" && !isDrawer ? (
             <div className="guesser-action-row">
               <GuessFeedbackBanner turnId={round.turnId} />
               {!self?.hasGuessed &&
@@ -292,7 +313,15 @@ function GameScreen({ room }: { room: PlayerRoomSnapshot }) {
         </section>
         <ChatPanel room={room} isDrawer={isDrawer} />
       </div>
-    </main>
+      </main>
+      {showWordDialog ? (
+        <WordSelectionDialog
+          key={round.turnId}
+          room={room}
+          turnId={round.turnId}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -355,71 +384,6 @@ function Leaderboard({
         );
       })}
     </ol>
-  );
-}
-
-function TurnResultsScreen({ room }: { room: PlayerRoomSnapshot }) {
-  const navigate = useNavigate();
-  const result = useRoomStore((state) => state.lastTurnResult);
-  const drawer = room.players.find(
-    (player) => player.id === result?.drawerId,
-  );
-  return (
-    <main
-      id="main-content"
-      className="results-page page-shell page-shell--wide"
-      aria-labelledby="turn-results-title"
-    >
-      <section className="turn-result-summary">
-        <p className="page-kicker">Turn complete</p>
-        <h1 id="turn-results-title">
-          The word was <span>{result?.answer ?? "revealed"}</span>
-        </h1>
-        <p className="lede">
-          {drawer?.name ?? "The drawer"} drew it.{" "}
-          {result?.correctPlayerIds.length ?? 0} players found the answer.
-        </p>
-        <div className="result-facts">
-          <div>
-            <span>Turn ended</span>
-            <strong>{result?.reason.replaceAll("-", " ") ?? "Complete"}</strong>
-          </div>
-          <div>
-            <span>Correct guesses</span>
-            <strong className="numeric">
-              {result?.correctPlayerIds.length ?? 0}
-            </strong>
-          </div>
-          <div>
-            <span>Next turn</span>
-            <strong>Starting shortly</strong>
-          </div>
-        </div>
-      </section>
-      <Panel className="round-score-panel" aria-labelledby="round-score-title">
-        <div className="split panel__heading">
-          <h2 id="round-score-title">Round scores</h2>
-          <StatusBadge icon="clock">Waiting for server</StatusBadge>
-        </div>
-        <Leaderboard room={room} />
-        <div className="form-actions">
-          <Button
-            variant="secondary"
-            icon="logOut"
-            onClick={() => void leaveRoom(navigate)}
-          >
-            Leave room
-          </Button>
-          <Button
-            icon="refresh"
-            data-testid="next-turn-action"
-            onClick={() => void roomController.requestSnapshot()}
-          >
-            Refresh next turn
-          </Button>
-        </div>
-      </Panel>
-    </main>
   );
 }
 
@@ -664,11 +628,10 @@ export function RoomScreen() {
     case "lobby":
       return <LobbyScreen />;
     case "selecting":
-      return <WordSelectionScreen room={room} />;
     case "drawing":
       return <GameScreen room={room} />;
     case "turn-results":
-      return <TurnResultsScreen room={room} />;
+      return <GameScreen room={room} frozen />;
     case "final-results":
       return <FinalResultsScreen room={room} />;
   }

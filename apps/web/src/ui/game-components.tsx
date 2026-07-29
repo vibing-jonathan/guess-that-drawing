@@ -91,19 +91,27 @@ function WordDisplay({
     );
   }
   const mask = room.round?.wordMask;
+  const drawer = room.players.find(
+    (player) => player.id === room.round?.drawerId,
+  );
+  const selectionLabel = isDrawer
+    ? "Choose your word"
+    : drawer
+      ? `${drawer.name} is choosing a word`
+      : "Word choice in progress";
   return (
     <div
       className="word-display"
       aria-label={
         mask
           ? `${mask.words} ${mask.words === 1 ? "word" : "words"}, ${mask.letters} letters`
-          : "Word is being selected"
+          : selectionLabel
       }
     >
       <span>
         {mask
           ? `${mask.words === 1 ? "One word" : `${mask.words} words`} · ${mask.letters} letters`
-          : "Choosing a word"}
+          : selectionLabel}
       </span>
       <strong aria-hidden="true">{mask?.pattern ?? "•••"}</strong>
     </div>
@@ -141,7 +149,11 @@ export function GameStatusBar({
         </span>
         <strong>
           Turn {round?.turn ?? 1}
-          {drawer ? ` · ${drawer.name} draws` : ""}
+          {drawer
+            ? ` · ${drawer.name} ${
+                round?.phase === "selecting" ? "chooses" : "draws"
+              }`
+            : ""}
         </strong>
       </div>
       <WordDisplay room={room} isDrawer={isDrawer} />
@@ -370,7 +382,15 @@ export function ChatPanel({
           <Icon name="alert" size={16} /> {error}
         </p>
       ) : null}
-      {isDrawer ? (
+      {room.phase === "selecting" ? (
+        <div className="composer composer--disabled" role="status">
+          <Icon name="clock" size={20} />
+          <div>
+            <strong>Word choice in progress</strong>
+            <span>Guessing opens as soon as the word is ready.</span>
+          </div>
+        </div>
+      ) : isDrawer ? (
         <div className="composer composer--disabled">
           <Icon name="lock" size={20} />
           <div>
@@ -389,6 +409,7 @@ export function ChatPanel({
               value={text}
               maxLength={180}
               placeholder="Keep the answer secret"
+              disabled={disabled}
               onChange={(event) => setText(event.target.value)}
               data-testid={compact ? "mobile-guess-composer" : "guess-composer"}
             />
@@ -396,7 +417,7 @@ export function ChatPanel({
               icon="send"
               label="Send message"
               type="submit"
-              disabled={!text.trim() || pending}
+              disabled={!text.trim() || disabled}
             />
           </div>
         </form>
@@ -411,6 +432,7 @@ export function ChatPanel({
               value={text}
               maxLength={180}
               placeholder="Type a guess"
+              disabled={disabled}
               onChange={(event) => setText(event.target.value)}
               data-testid={compact ? "mobile-guess-composer" : "guess-composer"}
             />
@@ -526,6 +548,20 @@ export function MobileSupport({
                 selfId={room.selfPlayerId}
                 ranked
                 showKick={isHost}
+                activeDrawerId={
+                  room.phase === "selecting" || room.phase === "drawing"
+                    ? (room.round?.drawerId ?? null)
+                    : null
+                }
+                {...(room.phase === "selecting" || room.phase === "drawing"
+                  ? {
+                      activeDrawerStatus: room.round?.pausedUntil
+                        ? ("Reconnecting" as const)
+                        : room.phase === "selecting"
+                          ? ("Choosing" as const)
+                          : ("Drawing" as const),
+                    }
+                  : {})}
                 onKick={(playerId) =>
                   void roomController.kickPlayer(playerId)
                 }

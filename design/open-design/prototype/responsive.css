@@ -63,7 +63,7 @@
   }
 
   .game-shell .player-row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .game-shell .player-row .avatar {
@@ -571,25 +571,46 @@
   }
 
   .word-select-layer {
-    inset-block-start: 0;
-    align-items: end;
-    padding: 0;
+    --word-dialog-top: clamp(4rem, 10dvh, 6rem);
+
+    inset: 0;
+    place-items: start center;
+    padding:
+      var(--word-dialog-top)
+      max(var(--space-2), var(--safe-right))
+      max(var(--space-2), var(--safe-bottom))
+      max(var(--space-2), var(--safe-left));
   }
 
   .word-select-dialog {
-    max-block-size: 92vh;
+    inline-size: min(100%, 36rem);
+    max-block-size:
+      calc(
+        100dvh
+        - var(--word-dialog-top)
+        - max(var(--space-2), var(--safe-bottom))
+      );
     overflow-y: auto;
-    border-block-end: 0;
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-    padding-block-end: max(var(--space-5), var(--safe-bottom));
+    border-block-end: var(--border-standard) solid var(--color-ink);
+    border-radius: var(--radius-xl);
+    padding: var(--space-4);
   }
 
   .word-select-heading {
     display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--space-2);
+  }
+
+  .word-select-heading .timer {
+    min-inline-size: 7.25rem;
   }
 
   .word-choice-list {
     grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+    margin-block: var(--space-3);
   }
 
   .word-choice-list button {
@@ -601,6 +622,15 @@
 
   .word-choice-list button > small {
     grid-column: 1 / -1;
+  }
+
+  .word-select-dialog .dialog__actions {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .word-select-dialog .dialog__actions .button {
+    inline-size: 100%;
   }
 
   .results-page,
@@ -715,6 +745,14 @@
     min-inline-size: 6.75rem;
   }
 
+  .word-select-heading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .word-select-heading .timer {
+    justify-self: start;
+  }
+
   .swatch,
   .custom-color {
     inline-size: var(--control-sm);
@@ -786,6 +824,43 @@
 
   .mobile-guess-dock {
     position: static;
+  }
+
+  .word-select-layer {
+    inset: 0;
+    place-items: center end;
+    padding: var(--space-2);
+  }
+
+  .word-select-dialog {
+    inline-size: min(34rem, 72vw);
+    max-block-size: calc(100dvh - 2 * var(--space-2));
+    padding: var(--space-3);
+    border-block-end: var(--border-standard) solid var(--color-ink);
+    border-radius: var(--radius-xl);
+  }
+
+  .word-select-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .word-choice-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .word-choice-list button {
+    min-block-size: 4.5rem;
+    grid-template-columns: minmax(0, 1fr);
+    place-items: center;
+    text-align: center;
+  }
+
+  .word-select-dialog .dialog__actions {
+    display: flex;
+  }
+
+  .word-select-dialog .dialog__actions .button {
+    inline-size: auto;
   }
 
   .sheet {

@@ -6,12 +6,23 @@
 
 html {
   min-inline-size: 20rem;
+  scrollbar-gutter: stable;
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-body);
   font-size: 100%;
   line-height: var(--leading-body);
   text-size-adjust: 100%;
+}
+
+:is(
+  .profile-screen,
+  .create-screen,
+  .theme-screen,
+  .editor-screen,
+  .review-screen
+) > .page-heading {
+  min-block-size: 10.5rem;
 }
 
 body {

@@ -34,7 +34,8 @@ import type {
 import { NOOP_TRANSPORT } from "./domain.js";
 import type { GamePersistence, PersistedSession } from "./persistence.js";
 
-const TURN_RESULTS_MS = 6_000;
+// Keep round:ended observable, but hand control to the next drawer on the next tick.
+const TURN_RESULTS_MS = 0;
 const ANONYMOUS_SESSION_TTL_MS = 10 * 60 * 1_000;
 const MAX_RECENT_COMMANDS_PER_SESSION = 64;
 const MAX_CHAT_MESSAGES = 100;

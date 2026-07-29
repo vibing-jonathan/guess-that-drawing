@@ -9,6 +9,7 @@ import {
   HomeScreen,
   JoinScreen,
   ProfileScreen,
+  ReviewRoomScreen,
   ThemeEditorScreen,
   ThemeLibraryScreen,
 } from "./ui/setup-screens";
@@ -25,6 +26,13 @@ function RouteFocus() {
 
 export default function App() {
   const location = useLocation();
+  const isSetupFlow = [
+    "/profile",
+    "/create",
+    "/themes",
+    "/themes/new",
+    "/review",
+  ].includes(location.pathname);
   const connectionMessage = useRoomStore(
     (state) => state.connectionMessage,
   );
@@ -34,15 +42,14 @@ export default function App() {
   const error = useRoomStore((state) => state.lastError);
 
   useEffect(() => {
-    if (!location.pathname.startsWith("/room/")) {
-      return;
-    }
     roomController.start();
     return () => roomController.stop();
-  }, [location.pathname]);
+  }, []);
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${isSetupFlow ? "app-shell--setup" : ""}`}
+    >
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
@@ -60,6 +67,7 @@ export default function App() {
         <Route path="/join" element={<JoinScreen />} />
         <Route path="/themes" element={<ThemeLibraryScreen />} />
         <Route path="/themes/new" element={<ThemeEditorScreen />} />
+        <Route path="/review" element={<ReviewRoomScreen />} />
         <Route path="/room/:code" element={<RoomScreen />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

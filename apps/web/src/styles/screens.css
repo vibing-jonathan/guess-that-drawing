@@ -100,14 +100,22 @@
   position: sticky;
   inset-block-start: 6rem;
   display: grid;
+  min-inline-size: 0;
   justify-items: center;
   gap: var(--space-3);
+  overflow: hidden;
   text-align: center;
 }
 
 .avatar-preview-panel > strong {
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow: hidden;
   font-family: var(--font-display);
   font-size: var(--text-xl);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-controls {
@@ -117,7 +125,12 @@
 
 .avatar-layers {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
+}
+
+.avatar-compact-controls {
+  display: none;
 }
 
 .layer-control {
@@ -174,6 +187,51 @@
   gap: var(--space-6);
 }
 
+.setup-flow {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: var(--space-6);
+  block-size: clamp(44rem, calc(100svh - 16rem), 56rem);
+  overflow: hidden;
+  box-shadow: var(--shadow-raised);
+}
+
+.setup-flow--standalone {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.setup-frame--without-progress {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.setup-flow > .setup-steps {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.setup-flow__stage {
+  min-inline-size: 0;
+  min-block-size: 0;
+  padding-inline-end: var(--space-2);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.setup-frame__actions {
+  min-block-size: var(--control-lg);
+  padding-block-start: var(--space-4);
+  border-block-start: var(--border-hairline) solid var(--color-border);
+  margin-block-start: 0;
+}
+
+.setup-stage--summary {
+  display: grid;
+  grid-template-columns: minmax(24rem, 1fr) minmax(12rem, 0.5fr);
+  align-items: start;
+  gap: var(--space-6);
+}
+
 .setup-steps {
   display: grid;
   gap: var(--space-2);
@@ -224,6 +282,10 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-5);
+}
+
+.settings-grid > .field {
+  align-content: start;
 }
 
 .room-privacy {
@@ -316,11 +378,47 @@
 
 .join-identity > div {
   display: grid;
+  min-inline-size: 0;
 }
 
 .join-identity span {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
+}
+
+.join-identity strong {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-card {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.review-identity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.review-identity > div {
+  display: grid;
+  min-inline-size: 0;
+  gap: var(--space-1);
+}
+
+.review-identity > div > strong {
+  inline-size: 100%;
+  min-inline-size: 0;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .theme-grid {
@@ -501,6 +599,11 @@
   list-style: none;
 }
 
+.setup-flow--editor .word-list {
+  max-block-size: none;
+  overflow-y: visible;
+}
+
 .word-list li {
   display: grid;
   grid-template-columns: 2rem minmax(0, 1fr) auto auto;
@@ -675,7 +778,7 @@
 }
 
 .game-shell .player-row {
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .game-shell .player-row__rank {
@@ -704,6 +807,9 @@
 
 .round-context {
   display: grid;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow: hidden;
   line-height: 1.2;
 }
 
@@ -713,7 +819,10 @@
 }
 
 .round-context strong {
+  overflow: hidden;
   font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .guesser-action-row {
@@ -752,34 +861,27 @@
   font-size: var(--text-xl);
 }
 
-.game-page--selection {
-  position: relative;
-  inline-size: 100%;
-  min-block-size: calc(100vh - 4rem);
-  padding: var(--space-4) var(--page-gutter);
-}
-
-.game-selection-shell {
-  display: grid;
-  gap: var(--space-3);
-  max-inline-size: 72rem;
-  margin-inline: auto;
-  opacity: 0.45;
-}
-
 .word-select-layer {
+  --word-dialog-top: clamp(7.5rem, 12dvh, 9rem);
+
   position: fixed;
   z-index: var(--z-dialog);
-  inset: 4rem 0 0;
+  inset: 0;
   display: grid;
-  place-items: center;
-  padding: var(--space-4);
-  background: var(--color-scrim);
+  place-items: start center;
+  padding:
+    var(--word-dialog-top)
+    var(--space-4)
+    var(--space-4);
+  background: color-mix(in oklch, var(--color-ink) 18%, transparent);
 }
 
 .word-select-dialog {
-  inline-size: min(100%, 46rem);
-  padding: clamp(var(--space-5), 4vw, var(--space-8));
+  inline-size: min(100%, 40rem);
+  max-block-size:
+    calc(100dvh - var(--word-dialog-top) - var(--space-4));
+  padding: clamp(var(--space-4), 2.5vw, var(--space-6));
+  overflow-y: auto;
   border: var(--border-standard) solid var(--color-ink);
   border-radius: var(--radius-xl);
   background: var(--color-surface);
@@ -793,26 +895,28 @@
   gap: var(--space-6);
 }
 
-.word-select-heading h1 {
+.word-select-heading h2 {
   margin-block-end: var(--space-2);
-  font-size: var(--text-3xl);
+  font-size: var(--text-2xl);
 }
 
 .word-select-heading p {
+  max-inline-size: 34ch;
   margin-block-end: 0;
   color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
 .word-choice-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
-  margin-block: var(--space-6);
+  margin-block: var(--space-4);
 }
 
 .word-choice-list button {
   display: grid;
-  min-block-size: 8rem;
+  min-block-size: 6.5rem;
   place-items: center;
   gap: var(--space-2);
   padding: var(--space-4);
@@ -821,6 +925,7 @@
   background: var(--color-surface);
   color: var(--color-ink);
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .word-choice-list button:hover {
