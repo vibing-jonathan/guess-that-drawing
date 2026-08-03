@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
 
@@ -19,7 +20,9 @@ describe("loadConfig", () => {
     expect(config.webOrigins).toEqual(["https://one.example", "https://two.example"]);
     expect(config.emptyRoomTtlMs).toBe(120_000);
     expect(config.roomLifetimeMs).toBe(3_600_000);
-    expect(config.webDistDirectory).toBe("/web/dist");
+    expect(config.webDistDirectory).toBe(
+      resolve("/workspace", "../../web/dist"),
+    );
   });
 
   it.each([

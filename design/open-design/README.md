@@ -7,8 +7,12 @@ production frontend.
 - Entry: `guess-that-drawing-prototype.html`
 - Design system: `DESIGN.md`
 - Open Design review run: `fe6f6925-e87d-471b-811c-395b0a3aa478`
-- Reviewed states: 25
+- Reviewed modes: Classic, Pro, and Phone
+- Reviewed states: 56
 - Reviewed viewports: 390, 768, 1024, and 1440 px, plus 844×390 landscape
+- Setup contract: Mode & settings; code-private rooms; separate Theme step for Classic/Pro
+- Phone timers: Text 60 sec default; Drawing 120 sec default
+- Phone text tasks: 1–180 trimmed characters; skipped steps preserve the active deadline
 
 The `prototype/` directory contains the reviewed source modules plus a
 browser-ready bundle and its vendored React runtime. Rebuild `app.bundle.js`

@@ -175,7 +175,10 @@ describe("secret redaction", () => {
   };
 
   it("keeps the public snapshot schema free of drawer-only fields", () => {
-    expect(RoomSnapshotSchema.parse(publicSnapshot)).toEqual(publicSnapshot);
+    expect(RoomSnapshotSchema.parse(publicSnapshot)).toEqual({
+      ...publicSnapshot,
+      mode: "classic",
+    });
     expect(
       RoomSnapshotSchema.safeParse({
         ...publicSnapshot,
@@ -198,9 +201,10 @@ describe("secret redaction", () => {
         wordChoices: ["secret", "hidden", "private"],
       },
     };
-    expect(PlayerRoomSnapshotSchema.parse(privateSnapshot)).toEqual(
-      privateSnapshot,
-    );
+    expect(PlayerRoomSnapshotSchema.parse(privateSnapshot)).toEqual({
+      ...privateSnapshot,
+      mode: "classic",
+    });
   });
 });
 

@@ -266,7 +266,11 @@ function PlayerRow({ player, rank, showKick = false, onKick }) {
           {!isHost && !isDrawer ? <span className="player-row__role"><Icon name={status === "reconnecting" ? "wifiOff" : "wifi"} size={14} /><span>{status === "reconnecting" ? "Reconnecting" : status || "Ready"}</span></span> : null}
         </span>
       </div>
-      {delta ? <span className="player-row__delta numeric">+{delta}</span> : null}
+      {delta ? (
+        <span className={`player-row__delta numeric ${delta < 0 ? "is-negative" : ""}`}>
+          {delta > 0 ? "+" : "−"}{Math.abs(delta)}
+        </span>
+      ) : null}
       {typeof score === "number" ? <strong className="player-row__score numeric">{score}</strong> : null}
       {hasKickAction ? (
         <IconButton icon="logOut" label={`Remove ${name} from room`} tooltip={`Kick ${name}`} onClick={() => onKick?.(name)} />
@@ -436,6 +440,7 @@ function DrawingToolbar({ disabled = false, onClear }) {
 function ChatPanel({
   mode = "guesser",
   guessed = false,
+  penalty = false,
   selecting = false,
   titleId = "chat-title",
   inputId = "guess-input",
@@ -467,6 +472,11 @@ function ChatPanel({
         <div className="chat-message"><strong>Noah</strong><span>tower by the sea</span><time>8:42</time></div>
         <div className="chat-event"><Icon name="checkCircle" size={16} /><span><strong>Noah</strong> guessed the word.</span></div>
         <div className="chat-message"><strong>Amara</strong><span>coast guard?</span><time>8:43</time></div>
+        {penalty ? (
+          <div className="chat-message chat-message--own" data-od-id="pro-public-incorrect-guess">
+            <strong>Priya</strong><span>Beacon</span><time>now</time>
+          </div>
+        ) : null}
         {sent ? <div className="chat-message chat-message--own"><strong>You</strong><span>Your mock guess was sent.</span><time>now</time></div> : null}
       </div>
       {selecting ? (
@@ -548,7 +558,7 @@ function ConfirmDialog({ open, title, description, confirmLabel, tone = "danger"
   );
 }
 
-function MobileSupport({ players, mode, guessed, selecting = false }) {
+function MobileSupport({ players, mode, guessed, penalty = false, selecting = false }) {
   const [sheet, setSheet] = useState(null);
   const closeRef = useRef(null);
   const sheetRef = useRef(null);
@@ -596,9 +606,10 @@ function MobileSupport({ players, mode, guessed, selecting = false }) {
               <PlayersPanel players={players} ranked titleId="mobile-players-title" odId="mobile-players-panel" />
             ) : (
               <ChatPanel
-                mode={mode}
-                guessed={guessed}
-                selecting={selecting}
+                 mode={mode}
+                 guessed={guessed}
+                 penalty={penalty}
+                 selecting={selecting}
                 titleId="mobile-chat-title"
                 inputId="mobile-sheet-guess-input"
                 odId="mobile-chat-panel"
@@ -619,7 +630,11 @@ function Leaderboard({ players, final = false }) {
           <span className="leaderboard__place numeric">{index + 1}</span>
           <Avatar name={player.name} size={48} {...player.avatar} />
           <div><strong>{player.name}{player.isYou ? " · You" : ""}</strong>{index === 0 && final ? <span><Icon name="trophy" size={15} /> Winner</span> : <span>{player.status || "Finished"}</span>}</div>
-          {player.delta ? <span className="leaderboard__delta numeric">+{player.delta}</span> : null}
+          {player.delta ? (
+            <span className={`leaderboard__delta numeric ${player.delta < 0 ? "is-negative" : ""}`}>
+              {player.delta > 0 ? "+" : "−"}{Math.abs(player.delta)}
+            </span>
+          ) : null}
           <strong className="leaderboard__score numeric">{player.score}</strong>
         </li>
       ))}

@@ -1,9 +1,15 @@
 import { act, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const audio = vi.hoisted(() => ({
+  playGameSound: vi.fn(),
+}));
+
+vi.mock("./game-audio", () => audio);
+
 import { roomStore } from "../state/room-store";
 import { makeEstablished, makeSnapshot } from "../state/__tests__/fixtures";
-import { ChatPanel, useCountdown } from "./game-components";
+import { ChatPanel, Timer, useCountdown } from "./game-components";
 
 describe("ChatPanel", () => {
   afterEach(() => {
@@ -50,5 +56,35 @@ describe("useCountdown", () => {
     const { result } = renderHook(() => useCountdown(95_000));
 
     expect(result.current).toBe(5);
+  });
+});
+
+describe("Timer game cues", () => {
+  afterEach(() => {
+    audio.playGameSound.mockClear();
+  });
+
+  it("ticks through the final five seconds and accents the last second", () => {
+    const rendered = render(<Timer seconds={6} total={60} />);
+
+    rendered.rerender(<Timer seconds={5} total={60} />);
+    rendered.rerender(<Timer seconds={4} total={60} />);
+    rendered.rerender(<Timer seconds={1} total={60} />);
+
+    expect(audio.playGameSound).toHaveBeenNthCalledWith(1, "timerTick");
+    expect(audio.playGameSound).toHaveBeenNthCalledWith(2, "timerTick");
+    expect(audio.playGameSound).toHaveBeenNthCalledWith(3, "timerFinal");
+  });
+
+  it("stays silent for a duplicate timer on the same screen", () => {
+    const rendered = render(
+      <Timer seconds={6} total={60} audible={false} />,
+    );
+
+    rendered.rerender(
+      <Timer seconds={5} total={60} audible={false} />,
+    );
+
+    expect(audio.playGameSound).not.toHaveBeenCalled();
   });
 });

@@ -15,8 +15,11 @@ import type {
   PlayerEvent,
   PlayerLeftEvent,
   PlayerRoomSnapshot,
+  PhonePrivateStateEvent,
+  PhoneStateEvent,
   ReplayState,
   RoomSnapshot,
+  RoomSettings,
   RoundEvent,
   RoundPrivate,
   RoundPrivateEvent,
@@ -145,6 +148,8 @@ export interface RoomStoreActions {
     event: CorrectGuessBroadcast,
   ) => EventApplyResult;
   applyScoreUpdated: (event: ScoreUpdatedEvent) => EventApplyResult;
+  applyPhoneState: (event: PhoneStateEvent) => EventApplyResult;
+  applyPhonePrivate: (event: PhonePrivateStateEvent) => EventApplyResult;
   applyKicked: (event: KickedEvent) => EventApplyResult;
   setError: (error: RealtimeClientIssue | ContractError | null) => void;
   clearRoom: (status?: RoomSessionStatus) => void;
@@ -179,6 +184,9 @@ const initialData = (): RoomStoreData => ({
 function sanitizePrivateRound(
   snapshot: PlayerRoomSnapshot,
 ): RoundPrivate | null {
+  if (snapshot.mode === "phone") {
+    return null;
+  }
   const privateRound = snapshot.privateRound;
   if (
     !privateRound ||
@@ -197,9 +205,101 @@ function sanitizePrivateRound(
 function sanitizeSnapshot(
   snapshot: PlayerRoomSnapshot,
 ): PlayerRoomSnapshot {
+  if (snapshot.mode === "phone") {
+    if (snapshot.phase === "lobby") {
+      return {
+        ...snapshot,
+        players: snapshot.players.map((player) => ({
+          ...player,
+          avatar: { ...player.avatar },
+        })),
+        chat: [...snapshot.chat],
+        phone: null,
+        privatePhone: null,
+      };
+    }
+    if (snapshot.phase === "phone-summary") {
+      return {
+        ...snapshot,
+        players: snapshot.players.map((player) => ({
+          ...player,
+          avatar: { ...player.avatar },
+        })),
+        chat: [...snapshot.chat],
+        phone: {
+          ...snapshot.phone,
+          cursor: { ...snapshot.phone.cursor },
+          storyline: {
+            ...snapshot.phone.storyline,
+            entries: snapshot.phone.storyline.entries.map((entry) =>
+              entry.kind === "drawing"
+                ? { ...entry, envelopes: [...entry.envelopes] }
+                : { ...entry },
+            ),
+          },
+        },
+        privatePhone: null,
+      };
+    }
+    if (snapshot.phase === "final-results") {
+      return {
+        ...snapshot,
+        players: snapshot.players.map((player) => ({
+          ...player,
+          avatar: { ...player.avatar },
+        })),
+        chat: [...snapshot.chat],
+        phone: { ...snapshot.phone },
+        privatePhone: null,
+      };
+    }
+    const privatePhone = snapshot.privatePhone
+      ? {
+          ...snapshot.privatePhone,
+          prompt:
+            snapshot.privatePhone.prompt?.kind === "drawing"
+              ? {
+                  ...snapshot.privatePhone.prompt,
+                  envelopes: [
+                    ...snapshot.privatePhone.prompt.envelopes,
+                  ],
+                }
+              : snapshot.privatePhone.prompt
+                ? { ...snapshot.privatePhone.prompt }
+                : null,
+          draft: snapshot.privatePhone.draft
+            ? {
+                ...snapshot.privatePhone.draft,
+                envelopes: [...snapshot.privatePhone.draft.envelopes],
+              }
+            : null,
+        }
+      : null;
+    return {
+      ...snapshot,
+      players: snapshot.players.map((player) => ({
+        ...player,
+        avatar: { ...player.avatar },
+      })),
+      chat: [...snapshot.chat],
+      phone: {
+        ...snapshot.phone,
+        participants: snapshot.phone.participants.map(
+          (participant) => ({
+            ...participant,
+            avatar: { ...participant.avatar },
+          }),
+        ),
+      },
+      privatePhone,
+    };
+  }
   return {
     ...snapshot,
-    players: [...snapshot.players],
+    players: snapshot.players.map((player) => ({
+      ...player,
+      avatar: { ...player.avatar },
+    })),
     chat: [...snapshot.chat],
     drawing: snapshot.drawing
       ? {
@@ -221,6 +321,13 @@ function publicToPlayerSnapshot(
   snapshot: RoomSnapshot,
   selfPlayerId: string,
 ): PlayerRoomSnapshot {
+  if (snapshot.mode === "phone") {
+    return sanitizeSnapshot({
+      ...snapshot,
+      selfPlayerId,
+      privatePhone: null,
+    });
+  }
   return sanitizeSnapshot({
     ...snapshot,
     selfPlayerId,
@@ -238,7 +345,9 @@ function contractIssue(error: RealtimeClientIssue | ContractError) {
 }
 
 function drawingThroughSequence(room: PlayerRoomSnapshot | null): number {
-  return room?.drawing?.throughSequence ?? 0;
+  return room?.mode === "phone"
+    ? 0
+    : (room?.drawing?.throughSequence ?? 0);
 }
 
 function isContiguous(
@@ -259,6 +368,9 @@ function mergeDrawingReplay(
   room: PlayerRoomSnapshot,
   replay: ReplayState,
 ): PlayerRoomSnapshot | null {
+  if (room.mode === "phone") {
+    return null;
+  }
   if (room.round?.turnId !== replay.turnId) {
     return null;
   }
@@ -297,6 +409,54 @@ function mergeDrawingReplay(
       throughSequence: nextThrough,
       operations,
     },
+  };
+}
+
+function lobbySnapshotWithSettings(
+  room: PlayerRoomSnapshot,
+  settings: RoomSettings,
+): PlayerRoomSnapshot {
+  const common = {
+    code: room.code,
+    revision: room.revision,
+    players: room.players,
+    chat: room.chat,
+    serverTime: room.serverTime,
+    createdAt: room.createdAt,
+    expiresAt: room.expiresAt,
+    selfPlayerId: room.selfPlayerId,
+  };
+  if (settings.mode === "phone") {
+    return {
+      ...common,
+      mode: "phone",
+      phase: "lobby",
+      settings,
+      round: null,
+      drawing: null,
+      phone: null,
+      privatePhone: null,
+    };
+  }
+  if (settings.mode === "pro") {
+    return {
+      ...common,
+      mode: "pro",
+      phase: "lobby",
+      settings,
+      round: null,
+      drawing: null,
+      privateRound: null,
+    };
+  }
+  return {
+    ...common,
+    mode: "classic",
+    phase: "lobby",
+    settings,
+    round: null,
+    drawing: null,
+    privateRound: null,
   };
 }
 
@@ -640,16 +800,18 @@ export function createRoomStore(): RoomStoreApi {
         ),
 
       applySettingsUpdated: (event) =>
-        applyRoomDelta(event.revision, "settings-updated", (room) => ({
-          ...room,
-          settings: event.settings,
-        })),
+        applyRoomDelta(event.revision, "settings-updated", (room) =>
+          lobbySnapshotWithSettings(room, event.settings),
+        ),
 
       applyRoundEvent: (event) =>
         applyRoomDelta(
           event.revision,
           `round:${event.round.phase}:${event.round.turnId}`,
           (room) => {
+            if (room.mode === "phone") {
+              return room;
+            }
             const sameTurn = room.round?.turnId === event.round.turnId;
             const isDrawer =
               event.round.drawerId === room.selfPlayerId;
@@ -692,6 +854,7 @@ export function createRoomStore(): RoomStoreApi {
         const room = get().room;
         if (
           !room ||
+          room.mode === "phone" ||
           room.selfPlayerId !== room.round?.drawerId ||
           room.round.turnId !== event.privateRound.turnId
         ) {
@@ -700,10 +863,13 @@ export function createRoomStore(): RoomStoreApi {
         return applyRoomDelta(
           event.revision,
           `round-private:${event.privateRound.turnId}`,
-          (current) => ({
-            ...current,
-            privateRound: event.privateRound,
-          }),
+          (current) =>
+            current.mode === "phone"
+              ? current
+              : {
+                  ...current,
+                  privateRound: event.privateRound,
+                },
         );
       },
 
@@ -761,7 +927,12 @@ export function createRoomStore(): RoomStoreApi {
           return revisionResult;
         }
         const room = get().room;
-        if (!room?.round || event.envelopes.length === 0) {
+        if (
+          !room ||
+          room.mode === "phone" ||
+          !room.round ||
+          event.envelopes.length === 0
+        ) {
           return "ignored";
         }
         if (
@@ -818,13 +989,21 @@ export function createRoomStore(): RoomStoreApi {
       },
 
       applyDrawingReset: (event) => {
-        if (get().room?.round?.turnId !== event.turnId) {
+        const currentRoom = get().room;
+        if (
+          !currentRoom ||
+          currentRoom.mode === "phone" ||
+          currentRoom.round?.turnId !== event.turnId
+        ) {
           return "ignored";
         }
         return applyRoomDelta(
           event.revision,
           `drawing-reset:${event.turnId}:${event.throughSequence}`,
           (room) => {
+            if (room.mode === "phone") {
+              return room;
+            }
             set({
               drawingSyncStatus: "synced",
               drawingGapAfterSequence: null,
@@ -860,7 +1039,9 @@ export function createRoomStore(): RoomStoreApi {
       applyGuessFeedback: (event) => {
         const room = get().room;
         if (
-          !room?.round ||
+          !room ||
+          room.mode === "phone" ||
+          !room.round ||
           room.round.turnId !== event.feedback.turnId ||
           room.round.drawerId === room.selfPlayerId
         ) {
@@ -893,13 +1074,21 @@ export function createRoomStore(): RoomStoreApi {
       },
 
       applyCorrectGuess: (event) => {
-        if (get().room?.round?.turnId !== event.guess.turnId) {
+        const currentRoom = get().room;
+        if (
+          !currentRoom ||
+          currentRoom.mode === "phone" ||
+          currentRoom.round?.turnId !== event.guess.turnId
+        ) {
           return "ignored";
         }
         return applyRoomDelta(
           event.revision,
           `correct:${event.guess.turnId}:${event.guess.playerId}`,
           (room) => {
+            if (room.mode === "phone") {
+              return room;
+            }
             const round = room.round;
             if (!round || round.turnId !== event.guess.turnId) {
               return room;
@@ -970,6 +1159,147 @@ export function createRoomStore(): RoomStoreApi {
             };
           },
         ),
+
+      applyPhoneState: (event) => {
+        const state = get();
+        const room = state.room;
+        if (!room || room.mode !== "phone") {
+          return "ignored";
+        }
+        const eventKey = `phone-state:${event.phone.phase}`;
+        if (
+          event.revision < room.revision ||
+          state.eventRevisions[eventKey] === event.revision
+        ) {
+          return "stale";
+        }
+
+        let nextRoom: PlayerRoomSnapshot;
+        if (event.phone.phase === "phone-summary") {
+          nextRoom = {
+            ...room,
+            revision: event.revision,
+            phase: "phone-summary",
+            phone: {
+              ...event.phone,
+              cursor: { ...event.phone.cursor },
+              storyline: {
+                ...event.phone.storyline,
+                entries: event.phone.storyline.entries.map((entry) =>
+                  entry.kind === "drawing"
+                    ? {
+                        ...entry,
+                        envelopes: [...entry.envelopes],
+                      }
+                    : { ...entry },
+                ),
+              },
+            },
+            privatePhone: null,
+          };
+        } else if (event.phone.phase === "final-results") {
+          nextRoom = {
+            ...room,
+            revision: event.revision,
+            phase: "final-results",
+            phone: { ...event.phone },
+            privatePhone: null,
+          };
+        } else {
+          const sameAssignment =
+            room.privatePhone?.matchId === event.phone.matchId &&
+            room.privatePhone.phase === event.phone.phase;
+          nextRoom = {
+            ...room,
+            revision: event.revision,
+            phase: event.phone.phase,
+            phone: {
+              ...event.phone,
+              participants: event.phone.participants.map(
+                (participant) => ({
+                  ...participant,
+                  avatar: { ...participant.avatar },
+                }),
+              ),
+            },
+            privatePhone: sameAssignment ? room.privatePhone : null,
+          };
+        }
+
+        set({
+          room: nextRoom,
+          syncStatus: "synced",
+          revisionGap: null,
+          eventRevisions: {
+            ...state.eventRevisions,
+            [eventKey]: event.revision,
+          },
+        });
+        return "applied";
+      },
+
+      applyPhonePrivate: (event) => {
+        const room = get().room;
+        if (
+          !room ||
+          room.mode !== "phone" ||
+          room.phase === "lobby" ||
+          room.phase === "phone-summary" ||
+          room.phase === "final-results"
+        ) {
+          return "ignored";
+        }
+        if (
+          event.privatePhone &&
+          (event.privatePhone.matchId !== room.phone.matchId ||
+            event.privatePhone.phase !== room.phase)
+        ) {
+          return "ignored";
+        }
+        return applyRoomDelta(
+          event.revision,
+          `phone-private:${
+            event.privatePhone?.assignmentId ?? "cleared"
+          }`,
+          (current) => {
+            if (
+              current.mode !== "phone" ||
+              current.phase === "lobby" ||
+              current.phase === "phone-summary" ||
+              current.phase === "final-results"
+            ) {
+              return current;
+            }
+            return {
+              ...current,
+              privatePhone: event.privatePhone
+                ? {
+                    ...event.privatePhone,
+                    prompt:
+                      event.privatePhone.prompt?.kind === "drawing"
+                        ? {
+                            ...event.privatePhone.prompt,
+                            envelopes: [
+                              ...event.privatePhone.prompt.envelopes,
+                            ],
+                          }
+                        : event.privatePhone.prompt
+                          ? { ...event.privatePhone.prompt }
+                          : null,
+                    draft: event.privatePhone.draft
+                      ? {
+                          ...event.privatePhone.draft,
+                          envelopes: [
+                            ...event.privatePhone.draft.envelopes,
+                          ],
+                        }
+                      : null,
+                  }
+                : null,
+            };
+          },
+        );
+      },
 
       applyKicked: (event) => {
         const room = get().room;

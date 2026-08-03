@@ -1,9 +1,10 @@
-import { useEffect } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { useEffect, useLayoutEffect } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 
 import { roomController } from "./realtime/runtime";
 import { useRoomStore } from "./state/room-store";
 import { RoomScreen } from "./ui/game-screens";
+import { GameFeel } from "./ui/game-feel";
 import {
   CreateRoomScreen,
   HomeScreen,
@@ -14,9 +15,19 @@ import {
   ThemeLibraryScreen,
 } from "./ui/setup-screens";
 
-function RouteFocus() {
+const SETUP_ROUTES = new Set([
+  "/profile",
+  "/create",
+  "/themes",
+  "/themes/new",
+  "/review",
+]);
+
+function RouteEffects() {
   const location = useLocation();
-  useEffect(() => {
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
     const main = document.getElementById("main-content");
     main?.setAttribute("tabindex", "-1");
     main?.focus({ preventScroll: true });
@@ -26,13 +37,7 @@ function RouteFocus() {
 
 export default function App() {
   const location = useLocation();
-  const isSetupFlow = [
-    "/profile",
-    "/create",
-    "/themes",
-    "/themes/new",
-    "/review",
-  ].includes(location.pathname);
+  const isSetupFlow = SETUP_ROUTES.has(location.pathname);
   const connectionMessage = useRoomStore(
     (state) => state.connectionMessage,
   );
@@ -49,11 +54,13 @@ export default function App() {
   return (
     <div
       className={`app-shell ${isSetupFlow ? "app-shell--setup" : ""}`}
+      data-design-world="live-comics-desk"
     >
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
-      <RouteFocus />
+      <RouteEffects />
+      <GameFeel />
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {latestFeedback?.message ?? connectionMessage ?? ""}
       </div>

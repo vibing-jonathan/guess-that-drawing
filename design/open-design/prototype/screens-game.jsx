@@ -1,5 +1,6 @@
 (() => {
 const {
+  Avatar: GameAvatar,
   Banner: GameBanner,
   Button: GameButton,
   ChatPanel: GameChatPanel,
@@ -18,19 +19,27 @@ const { Icon: GameIcon } = window.GTDIcons;
 const { BASE_PLAYERS: GAME_BASE_PLAYERS } = window.GTDData;
 const { useEffect: useGameEffect, useRef: useGameRef, useState: useGameState } = React;
 
-function gamePlayersFor(mode, phase = "drawing") {
+function gamePlayersFor(mode, phase = "drawing", gameMode = "classic", penalty = false) {
   return GAME_BASE_PLAYERS
-    .map((player) => ({
-      ...player,
-      isDrawer: player.name === "Maya",
-      isYou: mode === "drawer" ? player.name === "Maya" : player.name === "Priya",
-      drawerStatus: player.name === "Maya" ? (phase === "selecting" ? "Choosing" : "Drawing") : undefined,
-      status: mode === "guessed" && player.name === "Priya" ? "Guessed" : player.status
-    }))
+    .map((player) => {
+      const isPenalizedPlayer = gameMode === "pro" && penalty && player.name === "Priya";
+      const penaltyAmount = isPenalizedPlayer
+        ? Math.min(25, player.score)
+        : 0;
+      return {
+        ...player,
+        score: player.score - penaltyAmount,
+        delta: isPenalizedPlayer ? (penaltyAmount > 0 ? -penaltyAmount : 0) : undefined,
+        isDrawer: player.name === "Maya",
+        isYou: mode === "drawer" ? player.name === "Maya" : player.name === "Priya",
+        drawerStatus: player.name === "Maya" ? (phase === "selecting" ? "Choosing" : "Drawing") : undefined,
+        status: mode === "guessed" && player.name === "Priya" ? "Guessed" : player.status
+      };
+    })
     .sort((a, b) => b.score - a.score);
 }
 
-function GameStatusBar({ mode, phase = "drawing", networkState }) {
+function GameStatusBar({ mode, phase = "drawing", networkState, gameMode = "classic" }) {
   const isDrawer = mode === "drawer";
   const selecting = phase === "selecting";
   const paused = networkState === "paused";
@@ -44,7 +53,7 @@ function GameStatusBar({ mode, phase = "drawing", networkState }) {
   return (
     <header className="game-statusbar" data-od-id="game-status">
       <div className="round-context">
-        <span className="eyebrow">Cycle 2 of 3</span>
+        <span className="eyebrow">{gameMode === "pro" ? "Pro · " : ""}Cycle 2 of 3</span>
         <strong>Turn 4 · Maya {selecting ? "chooses" : "draws"}</strong>
       </div>
       {selecting ? (
@@ -252,7 +261,7 @@ function MobileGuessDock({ guessed, disabled, selecting = false, onAnnounce }) {
   );
 }
 
-function GameScreen({ mode = "guesser", phase = "drawing", networkState: initialNetwork = "connected", onNavigate, onAnnounce }) {
+function GameScreen({ mode = "guesser", phase = "drawing", gameMode = "classic", penalty = false, networkState: initialNetwork = "connected", onNavigate, onAnnounce }) {
   const isDrawer = mode === "drawer";
   const selecting = phase === "selecting";
   const drawerChoosing = isDrawer && selecting;
@@ -261,7 +270,11 @@ function GameScreen({ mode = "guesser", phase = "drawing", networkState: initial
   const [clearDialog, setClearDialog] = useGameState(false);
   const [cleared, setCleared] = useGameState(false);
   const [networkState, setNetworkState] = useGameState(initialNetwork);
-  const players = gamePlayersFor(mode, phase);
+  const players = gamePlayersFor(mode, phase, gameMode, penalty);
+  const penaltyPlayer = penalty ? players.find((player) => player.name === "Priya") : null;
+  const penaltyStartScore = penalty ? GAME_BASE_PLAYERS.find((player) => player.name === "Priya")?.score : null;
+  const penaltyDelta = penaltyPlayer?.delta ?? 0;
+  const penaltyDeltaLabel = penaltyDelta < 0 ? `−${Math.abs(penaltyDelta)}` : `${penaltyDelta}`;
   const disabled = networkState !== "connected";
   const clearCanvas = () => {
     setClearDialog(false);
@@ -275,9 +288,9 @@ function GameScreen({ mode = "guesser", phase = "drawing", networkState: initial
   return (
     <main
       id="main-content"
-      className={`game-page game-page--${mode} ${selecting ? "game-page--selecting" : "game-page--drawing"}`}
+      className={`game-page game-page--${mode} game-page--${gameMode} ${selecting ? "game-page--selecting" : "game-page--drawing"}`}
       aria-labelledby="game-heading"
-      data-od-id={`game-${mode}-${phase}-screen`}
+      data-od-id={`${gameMode}-game-${mode}-${phase}-screen`}
     >
       <h1 id="game-heading" className="sr-only">
         {drawerChoosing
@@ -285,10 +298,10 @@ function GameScreen({ mode = "guesser", phase = "drawing", networkState: initial
           : selecting
             ? "Guesser view while Maya chooses a word"
             : isDrawer
-              ? "Active drawer game room"
+              ? `Active ${gameMode} drawer game room`
               : guessed
                 ? "Already-guessed game room"
-                : "Active guesser game room"}
+                : `Active ${gameMode} guesser game room`}
       </h1>
       <div className="game-live sr-only" aria-live="polite">
         {drawerChoosing
@@ -319,10 +332,15 @@ function GameScreen({ mode = "guesser", phase = "drawing", networkState: initial
           The clear remains reversible until the next drawing action.
         </GameBanner>
       ) : null}
+      {gameMode === "pro" && !penalty ? (
+        <GameBanner tone="warning" icon="circleAlert" title="Pro rule · incorrect guesses cost 25 points">
+          The server validates each submission. Incorrect guesses stay in public chat; only signed penalty feedback is private.
+        </GameBanner>
+      ) : null}
       <div className="game-shell" inert={drawerChoosing ? "" : undefined}>
         <GamePlayersPanel players={players} ranked />
         <section className="play-column" aria-label="Current drawing turn">
-          <GameStatusBar mode={isDrawer ? "drawer" : "guesser"} phase={phase} networkState={networkState} />
+          <GameStatusBar mode={isDrawer ? "drawer" : "guesser"} phase={phase} networkState={networkState} gameMode={gameMode} />
           {selecting ? (
             <EmptyTurnCanvas />
           ) : cleared ? (
@@ -340,7 +358,17 @@ function GameScreen({ mode = "guesser", phase = "drawing", networkState: initial
             <GameDrawingToolbar disabled={disabled} onClear={() => setClearDialog(true)} />
           ) : (
             <div className="guesser-action-row">
-              {guessed ? (
+              {penalty ? (
+                <GameBanner
+                  tone="danger"
+                  icon="circleX"
+                  title={`Incorrect guess · ${penaltyDeltaLabel} points`}
+                  privateNote="Only you can see this penalty feedback."
+                  data-private-feedback="pro-penalty"
+                >
+                  “Beacon” remains visible in public chat. The server confirmed your score changed from {penaltyStartScore?.toLocaleString("en-US")} to {penaltyPlayer?.score.toLocaleString("en-US")}.
+                </GameBanner>
+              ) : guessed ? (
                 <GameBanner
                   tone="success"
                   icon="checkCircle"
@@ -361,14 +389,14 @@ function GameScreen({ mode = "guesser", phase = "drawing", networkState: initial
                   Check the spelling. Your guess was not published.
                 </GameBanner>
               ) : (
-                <span className="canvas-caption"><GameIcon name="eye" size={18} /> Drawing in progress · guesses stay private until evaluated</span>
+                <span className="canvas-caption"><GameIcon name="eye" size={18} /> Drawing in progress · public guesses appear after validation</span>
               )}
             </div>
           )}
           {!isDrawer ? <MobileGuessDock guessed={guessed} disabled={disabled || selecting} selecting={selecting} onAnnounce={onAnnounce} /> : null}
-          <GameMobileSupport players={players} mode={isDrawer ? "drawer" : "guesser"} guessed={guessed} selecting={selecting} />
+          <GameMobileSupport players={players} mode={isDrawer ? "drawer" : "guesser"} guessed={guessed} penalty={penalty} selecting={selecting} />
         </section>
-        <GameChatPanel mode={isDrawer ? "drawer" : "guesser"} guessed={guessed} selecting={selecting} />
+        <GameChatPanel mode={isDrawer ? "drawer" : "guesser"} guessed={guessed} penalty={penalty} selecting={selecting} />
       </div>
       {drawerChoosing ? <WordChoiceDialog onNavigate={onNavigate} /> : null}
       <GameConfirmDialog
@@ -379,6 +407,423 @@ function GameScreen({ mode = "guesser", phase = "drawing", networkState: initial
         onClose={() => setClearDialog(false)}
         onConfirm={clearCanvas}
       />
+    </main>
+  );
+}
+
+const PHONE_PHASES = {
+  write: {
+    number: 1,
+    title: "Write a sentence",
+    instruction: "Start a scene that another player can draw.",
+    action: "Submit sentence",
+    timerName: "Text timer",
+    timerTotal: 60
+  },
+  "draw-prompt": {
+    number: 2,
+    title: "Draw an assigned prompt",
+    instruction: "Only you can see the sentence assigned to this canvas.",
+    action: "Submit drawing",
+    timerName: "Drawing timer",
+    timerTotal: 120
+  },
+  "guess-drawing": {
+    number: 3,
+    title: "Guess an assigned drawing",
+    instruction: "Describe what you think the private drawing shows.",
+    action: "Submit guess",
+    timerName: "Text timer",
+    timerTotal: 60
+  },
+  "draw-guess": {
+    number: 4,
+    title: "Draw an assigned guess",
+    instruction: "Turn the private guess into the final drawing in this chain.",
+    action: "Submit final drawing",
+    timerName: "Drawing timer",
+    timerTotal: 120
+  }
+};
+
+const PHONE_TEXT_LIMIT = 180;
+
+function PhonePhaseProgress({ active }) {
+  const labels = ["Write", "Draw", "Guess", "Draw"];
+  return (
+    <ol className="phone-phase-progress" aria-label={`Phase ${active} of 4`}>
+      {labels.map((label, index) => (
+        <li key={`${label}-${index}`} className={index + 1 === active ? "is-current" : index + 1 < active ? "is-complete" : ""}>
+          <span className="numeric">{index + 1}</span>
+          <strong>{label}</strong>
+          {index + 1 < active ? <GameIcon name="check" size={15} /> : null}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function PhoneStatusRoster({ phase, submitted, networkState }) {
+  const phaseStatus = {
+    write: ["Submitted", "Working", "Submitted", "Working", "Skipped"],
+    "draw-prompt": ["Submitted", "Working", "Working", "Skipped", "Submitted"],
+    "guess-drawing": ["Submitted", "Working", "Submitted", "Working", "Skipped"],
+    "draw-guess": ["Submitted", "Working", "Submitted", "Skipped", "Working"]
+  };
+  const statuses = phaseStatus[phase];
+  const players = GAME_BASE_PLAYERS.map((player, index) => {
+    const isYou = player.name === "Priya";
+    const status = isYou && networkState === "reconnecting"
+      ? "Disconnected"
+      : isYou && submitted
+        ? "Submitted"
+        : statuses[index];
+    return { ...player, score: undefined, isYou, phoneStatus: status };
+  });
+  const iconFor = (status) => status === "Submitted"
+    ? "checkCircle"
+    : status === "Disconnected"
+      ? "wifiOff"
+      : status === "Skipped"
+        ? "link"
+        : "pencil";
+  const toneFor = (status) => status === "Submitted"
+    ? "success"
+    : status === "Disconnected" || status === "Skipped"
+      ? "warning"
+      : "primary";
+  return (
+    <GamePanel as="aside" className="phone-roster" aria-labelledby="phone-roster-title" data-od-id="phone-player-statuses">
+      <div className="split panel__heading">
+        <h2 id="phone-roster-title">Player status</h2>
+        <span className="muted numeric">{networkState === "reconnecting" ? "4/5 connected" : "5/5 connected"}</span>
+      </div>
+      <ul>
+        {players.map((player) => (
+          <li key={player.name}>
+            <GameAvatar name={player.name} size={42} {...player.avatar} />
+            <div><strong>{player.name}{player.isYou ? " · You" : ""}</strong><span>Phase {PHONE_PHASES[phase].number}</span></div>
+            <GameStatusBadge tone={toneFor(player.phoneStatus)} icon={iconFor(player.phoneStatus)}>{player.phoneStatus}</GameStatusBadge>
+          </li>
+        ))}
+      </ul>
+      <p className="phone-roster__note"><GameIcon name="lock" size={16} /> Prompts and authors stay private while phases are active.</p>
+    </GamePanel>
+  );
+}
+
+function PhonePrivatePrompt({ label, children }) {
+  return (
+    <section className="phone-private-prompt" aria-labelledby="phone-private-prompt-title" data-author-hidden="true" data-od-id="phone-private-prompt">
+      <div>
+        <span className="eyebrow"><GameIcon name="lock" size={15} /> {label}</span>
+        <strong id="phone-private-prompt-title">{children}</strong>
+      </div>
+      <span>Author hidden until story summary</span>
+    </section>
+  );
+}
+
+function PhoneWriteSurface({ value, onChange, disabled }) {
+  const trimmedLength = value.trim().length;
+  return (
+    <section className="phone-writing-surface" aria-labelledby="phone-writing-title" data-od-id="phone-sentence-composer">
+      <div className="split">
+        <h2 id="phone-writing-title">Your opening sentence</h2>
+        <span id="phone-sentence-count" className="phone-character-count numeric muted">{trimmedLength}/{PHONE_TEXT_LIMIT}</span>
+      </div>
+      <label htmlFor="phone-sentence">Write one clear, drawable scene</label>
+      <textarea
+        id="phone-sentence"
+        value={value}
+        maxLength={PHONE_TEXT_LIMIT}
+        rows="5"
+        disabled={disabled}
+        aria-describedby="phone-sentence-help phone-sentence-count"
+        aria-invalid={trimmedLength < 1}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <p id="phone-sentence-help"><GameIcon name="eye" size={17} /> Use 1–180 characters after trimming. Other players cannot see this sentence until the synchronized summary.</p>
+    </section>
+  );
+}
+
+function PhoneGuessSurface({ value, onChange, disabled }) {
+  const trimmedLength = value.trim().length;
+  return (
+    <>
+      <div className="phone-assigned-canvas" data-od-id="phone-assigned-drawing">
+        <GameStaticDrawing />
+      </div>
+      <section className="phone-guess-composer" aria-labelledby="phone-guess-title">
+        <div className="phone-guess-composer__intro">
+          <div className="split">
+            <h2 id="phone-guess-title">What does this drawing say?</h2>
+            <span id="phone-guess-count" className="phone-character-count numeric muted">{trimmedLength}/{PHONE_TEXT_LIMIT}</span>
+          </div>
+          <p id="phone-guess-help">Write 1–180 characters after trimming. The drawing’s author stays hidden.</p>
+        </div>
+        <label htmlFor="phone-private-guess">Your private guess</label>
+        <div className="phone-guess-composer__row">
+          <textarea
+            id="phone-private-guess"
+            value={value}
+            maxLength={PHONE_TEXT_LIMIT}
+            rows="3"
+            disabled={disabled}
+            aria-describedby="phone-guess-help phone-guess-count"
+            aria-invalid={trimmedLength < 1}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </div>
+      </section>
+    </>
+  );
+}
+
+function PhoneDrawingSurface({ phase, disabled, onClear }) {
+  const prompt = phase === "draw-prompt"
+    ? "A lighthouse hosting a midnight dance party"
+    : "A rocky lighthouse by the sea";
+  return (
+    <>
+      <PhonePrivatePrompt label={phase === "draw-prompt" ? "Assigned sentence" : "Assigned guess"}>{prompt}</PhonePrivatePrompt>
+      <div className="phone-drawing-canvas" data-od-id={`phone-${phase}-canvas`}>
+        <GameStaticDrawing dimmed={disabled} revealSubject />
+      </div>
+      <GameDrawingToolbar disabled={disabled} onClear={onClear} />
+    </>
+  );
+}
+
+function PhonePhaseScreen({
+  phase = "write",
+  initialNetwork = "connected",
+  skippedLink = false,
+  onNavigate,
+  onAnnounce
+}) {
+  const phaseData = PHONE_PHASES[phase];
+  const [submitted, setSubmitted] = useGameState(false);
+  const [networkState, setNetworkState] = useGameState(initialNetwork);
+  const [sentence, setSentence] = useGameState("A cat tries to bake a birthday cake during a thunderstorm.");
+  const [guess, setGuess] = useGameState("A lighthouse throwing a party at midnight");
+  const [clearDialog, setClearDialog] = useGameState(false);
+  const disabled = networkState !== "connected" || submitted;
+  const textValue = phase === "write" ? sentence : phase === "guess-drawing" ? guess : "";
+  const requiresText = phase === "write" || phase === "guess-drawing";
+  const trimmedTextLength = textValue.trim().length;
+  const validText = !requiresText || (trimmedTextLength >= 1 && trimmedTextLength <= PHONE_TEXT_LIMIT);
+  const seconds = networkState === "reconnecting"
+    ? phaseData.timerTotal === 120 ? 92 : 42
+    : phase === "write"
+      ? 52
+      : phase === "draw-prompt"
+        ? 98
+        : phase === "guess-drawing"
+          ? 47
+          : 74;
+  const submit = () => {
+    if (disabled || !validText) return;
+    setSubmitted(true);
+    onAnnounce?.(`${phaseData.title} submitted. Waiting for the remaining players.`);
+  };
+  return (
+    <main
+      id="main-content"
+      className={`phone-page phone-page--${phase}`}
+      aria-labelledby="phone-phase-heading"
+      data-od-id={`phone-phase-${phase}-screen`}
+      data-phone-excludes="chat scores"
+    >
+      <h1 id="phone-phase-heading" className="sr-only">Phone Mode · {phaseData.title} · phase {phaseData.number} of 4</h1>
+      <div className="sr-only" aria-live="polite">
+        Phase {phaseData.number} of 4. {phaseData.title}. {seconds} seconds remain on the synchronized room timer.
+      </div>
+      {networkState === "reconnecting" ? (
+        <GameBanner
+          tone="warning"
+          icon="refresh"
+          title="Reconnecting to the Phone round"
+          actions={<GameButton variant="secondary" icon="refresh" onClick={() => setNetworkState("connected")}>Retry sync</GameButton>}
+        >
+          Your local work is preserved. Submission stays locked until the authoritative room timer and assignment are synchronized.
+        </GameBanner>
+      ) : networkState === "connected" && initialNetwork === "reconnecting" ? (
+        <GameBanner tone="success" icon="wifi" title="Back online">
+          The assignment and server deadline match the room. You can submit safely.
+        </GameBanner>
+      ) : null}
+      {skippedLink ? (
+        <GameBanner
+          tone="warning"
+          icon="link"
+          title="1 skipped step · continue this task"
+          role="status"
+        >
+          Continue from the most recent valid {phase === "guess-drawing" ? "drawing" : "prompt"} shown below. The skipped step stays recorded, authoring remains available, and the existing authoritative {phaseData.timerName.toLowerCase()} deadline is unchanged.
+        </GameBanner>
+      ) : null}
+      <div className="phone-shell">
+        <PhoneStatusRoster phase={phase} submitted={submitted} networkState={networkState} />
+        <section className="phone-play-column" aria-label={`${phaseData.title} activity`}>
+          <header className="phone-phase-header" data-od-id="phone-phase-status">
+            <div>
+              <span className="eyebrow">Phone Mode · Phase {phaseData.number} of 4</span>
+              <h2>{phaseData.title}</h2>
+              <p>{phaseData.instruction}</p>
+            </div>
+            <div className="phone-authority">
+              <GameTimer seconds={seconds} total={phaseData.timerTotal} label={`seconds remaining on the authoritative ${phaseData.timerName.toLowerCase()}`} />
+              <GameStatusBadge tone={networkState === "connected" ? "success" : "warning"} icon={networkState === "connected" ? "wifi" : "refresh"}>
+                {networkState === "connected" ? phaseData.timerName : "Resyncing"}
+              </GameStatusBadge>
+              <span>Shared server deadline for all players</span>
+            </div>
+          </header>
+          <PhonePhaseProgress active={phaseData.number} />
+          {phase === "write" ? (
+            <PhoneWriteSurface value={sentence} onChange={setSentence} disabled={disabled} />
+          ) : phase === "guess-drawing" ? (
+            <>
+              <PhonePrivatePrompt label="Assigned drawing">Describe the picture without seeing its earlier sentence</PhonePrivatePrompt>
+              <PhoneGuessSurface value={guess} onChange={setGuess} disabled={disabled} />
+            </>
+          ) : (
+            <PhoneDrawingSurface phase={phase} disabled={disabled} onClear={() => setClearDialog(true)} />
+          )}
+          {submitted ? (
+            <div className="phone-submitted-state" role="status" data-od-id="phone-submitted-state">
+              <GameIcon name="checkCircle" size={24} />
+              <div><strong>Submitted</strong><span>Your private link is locked. Waiting for 2 players before the room advances together.</span></div>
+            </div>
+          ) : (
+            <div className="phone-submit-row">
+              <span><GameIcon name="lock" size={17} /> Private submission · author hidden</span>
+              <GameButton
+                icon="arrowRight"
+                disabled={disabled || !validText}
+                onClick={submit}
+              >
+                {phaseData.action}
+              </GameButton>
+            </div>
+          )}
+        </section>
+      </div>
+      <GameConfirmDialog
+        open={clearDialog}
+        title="Clear this private drawing?"
+        description="The current Phone Mode canvas will be cleared. This static prototype keeps the confirmation behavior reviewable."
+        confirmLabel="Clear drawing"
+        onClose={() => setClearDialog(false)}
+        onConfirm={() => {
+          setClearDialog(false);
+          onAnnounce?.("Private drawing cleared.");
+        }}
+      />
+    </main>
+  );
+}
+
+const PHONE_STORY_ITEMS = [
+  { type: "sentence", by: "Maya", verb: "wrote", content: "A cat tries to bake a birthday cake during a thunderstorm." },
+  { type: "drawing", by: "Priya", verb: "drew", content: "Birthday cake drawing" },
+  { type: "sentence", by: "Noah", verb: "guessed", content: "A lighthouse throwing a party at midnight." },
+  { type: "drawing", by: "Leo", verb: "drew", content: "Midnight lighthouse drawing" }
+];
+
+function PhoneStorySummaryScreen({ role = "host", initialStep = 1, onNavigate }) {
+  const isHost = role === "host";
+  const [step, setStep] = useGameState(Math.max(0, Math.min(PHONE_STORY_ITEMS.length - 1, initialStep - 1)));
+  const item = PHONE_STORY_ITEMS[step];
+  const last = step === PHONE_STORY_ITEMS.length - 1;
+  return (
+    <main id="main-content" className={`phone-summary-page phone-summary-page--${role}`} aria-labelledby="phone-summary-title" data-od-id={`phone-summary-${role}-screen`}>
+      <header className="phone-summary-heading">
+        <div>
+          <span className="eyebrow">Phone Mode · Story summary</span>
+          <h1 id="phone-summary-title">The birthday cake chain</h1>
+          <p>{isHost ? "Reveal one link at a time. Everyone’s view stays synchronized to your controls." : "Maya is revealing this story. Your view follows the host automatically."}</p>
+        </div>
+        <GameStatusBadge tone="success" icon="wifi">Synchronized</GameStatusBadge>
+      </header>
+      <ol className="story-reveal-progress" aria-label={`Story item ${step + 1} of 4`}>
+        {PHONE_STORY_ITEMS.map((storyItem, index) => (
+          <li key={`${storyItem.type}-${index}`} className={index === step ? "is-current" : index < step ? "is-revealed" : ""}>
+            <span className="numeric">{index + 1}</span>
+            <strong>{storyItem.type === "sentence" ? "Sentence" : "Drawing"}</strong>
+          </li>
+        ))}
+      </ol>
+      <section className={`story-stage story-stage--${item.type}`} aria-live="polite" data-od-id={`story-item-${step + 1}`}>
+        <div className="story-stage__meta">
+          <span className="numeric">Item {step + 1} of 4</span>
+          <strong>{item.by} {item.verb}</strong>
+          <span>Attribution is visible during summary only</span>
+        </div>
+        {item.type === "sentence" ? (
+          <blockquote>{item.content}</blockquote>
+        ) : (
+          <div className="story-stage__drawing" aria-label={item.content}><GameStaticDrawing revealSubject /></div>
+        )}
+      </section>
+      {isHost ? (
+        <div className="story-host-controls" aria-label="Story reveal controls" data-od-id="story-host-controls">
+          <GameButton variant="secondary" icon="arrowLeft" disabled={step === 0} onClick={() => setStep((current) => Math.max(0, current - 1))}>Previous</GameButton>
+          <span className="numeric" aria-label={`Showing item ${step + 1} of 4`}>{step + 1}/4</span>
+          {last ? (
+            <GameButton icon="check" onClick={() => onNavigate("phone-complete-host")}>Finish story</GameButton>
+          ) : (
+            <GameButton icon="arrowRight" onClick={() => setStep((current) => Math.min(PHONE_STORY_ITEMS.length - 1, current + 1))}>Next item</GameButton>
+          )}
+        </div>
+      ) : (
+        <div className="story-guest-waiting" role="status" data-od-id="story-guest-waiting">
+          <GameIcon name="clock" size={24} />
+          <div><strong>Waiting for Maya</strong><span>The host controls previous, next, and finish. This view will advance automatically.</span></div>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function PhoneCompletionScreen({ role = "host", onNavigate }) {
+  const isHost = role === "host";
+  return (
+    <main id="main-content" className="phone-completion-page page-shell" aria-labelledby="phone-completion-title" data-od-id={`phone-completion-${role}-screen`}>
+      <section className="phone-completion-copy">
+        <span className="completion-mark"><GameIcon name="checkCircle" size={44} /></span>
+        <p className="page-kicker">Phone Mode complete</p>
+        <h1 id="phone-completion-title">Every story found an ending</h1>
+        <p className="lede">There is no leaderboard in Phone Mode. Keep the room together for a fresh set of private chains, or leave when you’re done.</p>
+      </section>
+      <GamePanel className="rematch-panel" aria-labelledby="rematch-title">
+        <div className="split panel__heading">
+          <h2 id="rematch-title">Next round</h2>
+          <GameStatusBadge tone={isHost ? "primary" : "warning"} icon={isHost ? "crown" : "clock"}>{isHost ? "Host controls" : "Waiting for host"}</GameStatusBadge>
+        </div>
+        {isHost ? (
+          <>
+            <p>Only the host can start another four-phase chain for everyone in this room.</p>
+            <div className="final-actions">
+              <GameButton icon="refresh" onClick={() => onNavigate("phone-phase-write")}>Play again</GameButton>
+              <GameButton variant="secondary" icon="settings" onClick={() => onNavigate("lobby-phone-host")}>Change settings</GameButton>
+              <GameButton variant="quiet" icon="logOut" onClick={() => onNavigate("home")}>Leave room</GameButton>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="story-guest-waiting" role="status" data-od-id="phone-completion-guest-waiting">
+              <GameIcon name="clock" size={24} />
+              <div><strong>Waiting for Maya</strong><span>The host decides whether to play again. No response is required from you.</span></div>
+            </div>
+            <div className="final-actions">
+              <GameButton variant="quiet" icon="logOut" onClick={() => onNavigate("home")}>Leave room</GameButton>
+            </div>
+          </>
+        )}
+      </GamePanel>
     </main>
   );
 }
@@ -479,6 +924,9 @@ Object.assign(window, {
   GTDGameScreens: {
     FinalResultsScreen,
     GameScreen,
+    PhoneCompletionScreen,
+    PhonePhaseScreen,
+    PhoneStorySummaryScreen,
     ServerOutageScreen,
     TurnResultsScreen,
     WordSelectionScreen

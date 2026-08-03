@@ -36,6 +36,8 @@ import {
   Undo2,
   User,
   Users,
+  Volume2,
+  VolumeX,
   Wifi,
   WifiOff,
   X,
@@ -91,6 +93,8 @@ const ICONS = {
   undo: Undo2,
   user: User,
   users: Users,
+  volume: Volume2,
+  volumeOff: VolumeX,
   wifi: Wifi,
   wifiOff: WifiOff,
   x: X,
@@ -216,7 +220,7 @@ export function PageHeader({
 }) {
   return (
     <header className="page-heading">
-      {kicker ? <p className="page-kicker">{kicker}</p> : null}
+      {kicker ? <p className="sr-only">{kicker}</p> : null}
       <div className="split page-heading__row">
         <div>
           <h1 id={id}>{title}</h1>
@@ -364,18 +368,16 @@ export function Avatar({
         y="2"
         width="84"
         height="84"
-        rx="24"
+        rx="8"
         fill={config.backgroundColor}
         stroke="var(--color-ink)"
-        strokeWidth="3"
+        strokeWidth="1.25"
       />
-      <circle
-        cx="44"
-        cy="46"
-        r="27"
+      <path
+        d="M44 17c16 0 26 11 25 29-1 19-10 30-25 30S20 65 19 46c-1-18 9-29 25-29Z"
         fill={skin}
         stroke="var(--color-ink)"
-        strokeWidth="2.5"
+        strokeWidth="1.5"
       />
       {config.hairStyle !== "none" ? (
         <path
@@ -403,10 +405,12 @@ export function Avatar({
           </>
         ) : (
           <>
-            <circle cx="34" cy="42" r={config.eyes === "round" ? 4 : 3} />
-            <circle cx="54" cy="42" r={config.eyes === "round" ? 4 : 3} />
+            <path d="M29 42c3-3 7-3 10 0-3 2.5-7 2.5-10 0Zm20 0c3-3 7-3 10 0-3 2.5-7 2.5-10 0Z" fill="none" strokeWidth="1.5" />
+            <circle cx="34" cy="42" r={config.eyes === "round" ? 1.7 : 1.25} stroke="none" />
+            <circle cx="54" cy="42" r={config.eyes === "round" ? 1.7 : 1.25} stroke="none" />
           </>
         )}
+        <path d="m44 44-2 7 4 1" fill="none" strokeWidth="1.35" />
         {config.mouth === "neutral" ? (
           <path d="M39 56h10" />
         ) : config.mouth === "open" ? (
@@ -426,7 +430,7 @@ export function Avatar({
             />
           </>
         ) : (
-          <path d="M37 54c4 6 11 6 15 0" fill="none" />
+          <path d="M38 54c4 3 8 3 12 0" fill="none" />
         )}
       </g>
       {config.eyes === "glasses" ? (
@@ -549,6 +553,7 @@ export function PlayerRow({
   onKick,
   activeDrawerId,
   activeDrawerStatus,
+  showScore = true,
 }: {
   player: PlayerPublic;
   rank?: number;
@@ -557,6 +562,7 @@ export function PlayerRow({
   onKick?: () => void;
   activeDrawerId?: string | null;
   activeDrawerStatus?: ActiveDrawerStatus;
+  showScore?: boolean;
 }) {
   const isSelf = player.id === selfId;
   const isActiveDrawer = player.id === activeDrawerId;
@@ -576,6 +582,7 @@ export function PlayerRow({
         isActiveDrawer ? "player-row--drawer" : "",
         isRanked ? "player-row--ranked" : "",
         hasKickAction ? "player-row--kickable" : "",
+        !player.isConnected ? "player-row--disconnected" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -622,7 +629,14 @@ export function PlayerRow({
           ) : null}
         </span>
       </div>
-      <strong className="player-row__score numeric">{player.score}</strong>
+      {showScore ? (
+        <strong
+          key={player.score}
+          className="player-row__score numeric"
+        >
+          {player.score}
+        </strong>
+      ) : null}
       {hasKickAction ? (
         <IconButton
           icon="logOut"
@@ -643,6 +657,7 @@ export function PlayersPanel({
   title = "Players",
   activeDrawerId,
   activeDrawerStatus,
+  showScores = true,
 }: {
   players: readonly PlayerPublic[];
   selfId: string;
@@ -652,6 +667,7 @@ export function PlayersPanel({
   title?: string;
   activeDrawerId?: string | null;
   activeDrawerStatus?: ActiveDrawerStatus;
+  showScores?: boolean;
 }) {
   const headingId = useId();
   const sorted = ranked
@@ -676,6 +692,7 @@ export function PlayersPanel({
             {...(activeDrawerStatus === undefined
               ? {}
               : { activeDrawerStatus })}
+            showScore={showScores}
           />
         ))}
       </ol>

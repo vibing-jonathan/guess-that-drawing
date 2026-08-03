@@ -1,5 +1,6 @@
 import {
   DEFAULT_AVATAR,
+  DEFAULT_PHONE_ROOM_SETTINGS,
   DEFAULT_ROOM_SETTINGS,
   PlayerProfileSchema,
   ROOM_CODE_ALPHABET,
@@ -11,9 +12,15 @@ import {
   normalizeRoomCode,
   validateCustomTheme,
   type AvatarConfig,
+  type ClassicRoomSettings,
   type CustomThemeInput,
+  type GameMode,
+  type PhoneRoomSettings,
   type PlayerProfile,
+  type PlayerRoomSnapshot,
+  type ProRoomSettings,
   type RoomSettings,
+  type ThemeDescriptor,
   type ThemeMetadata,
 } from "@gtd/contracts";
 import {
@@ -24,7 +31,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 
 import {
   createCustomThemeDraft,
@@ -111,7 +118,7 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function roomTheme(theme: ThemeMetadata): RoomSettings["theme"] {
+function roomTheme(theme: ThemeMetadata): ThemeDescriptor {
   return {
     id: theme.id,
     name: theme.name,
@@ -153,100 +160,41 @@ export function HomeScreen() {
   return (
     <main
       id="main-content"
-      className="home-screen"
+      className="home-screen home-screen--gateway"
       aria-labelledby="home-title"
       data-od-id="home-screen"
     >
-      <section className="home-hero">
-        <div className="home-hero__copy">
-          <p className="page-kicker">Draw together · guess out loud</p>
+
+      <header className="home-production-masthead">
+        <strong>Guess That Drawing</strong>
+        <div>
+          <span><Icon name="lock" size={16} /> Private rooms · 2–12 players</span>
+        </div>
+      </header>
+
+      <section className="home-hero live-hero-v1 live-strip-home">
+        <article className="live-hero-v1__copy live-strip-home__entry">
           <h1 id="home-title">
-            A blank page.
-            <br />A room full of guesses.
+            Create or join a room.
           </h1>
-          <p className="lede">
-            Make a private room, choose a theme, and turn delightfully
-            imperfect drawings into the best part of game night.
+          <p className="live-hero-v1__lede">
+            Start a private game or enter the room code your host shared.
           </p>
-          <div className="home-actions">
-            <Button
-              icon="plus"
-              onClick={() => navigate("/profile?next=/create")}
-            >
+          <div className="home-actions live-hero-v1__actions">
+            <Button icon="plus" onClick={() => navigate("/profile?next=/create")}>
               Create a room
             </Button>
-            <Button
-              variant="secondary"
-              icon="key"
-              onClick={() => navigate("/join")}
-            >
+            <Button variant="secondary" icon="key" onClick={() => navigate("/join")}>
               Join a room
             </Button>
           </div>
-          <p className="home-note">
-            <Icon name="users" size={18} /> 2–12 players · no account required
+          <p className="live-hero-v1__note">
+            <Icon name="users" size={18} /> No account required · Realtime play
           </p>
-        </div>
-        <div
-          className="tabletop-preview"
-          aria-label="A sample drawing prompt on a tabletop"
-        >
-          <div className="prompt-slip">
-            <span>Your word</span>
-            <strong>LIGHTHOUSE</strong>
-          </div>
-          <svg
-            className="home-sketch"
-            viewBox="0 0 560 390"
-            role="img"
-            aria-label="A simple line drawing of a lighthouse and waves"
-          >
-            <rect
-              x="12"
-              y="12"
-              width="536"
-              height="366"
-              rx="16"
-              fill="var(--color-canvas)"
-              stroke="var(--color-ink)"
-              strokeWidth="6"
-            />
-            <path
-              d="M54 310c90-33 173-26 236 9 77 42 132 39 217 3M51 342c82-24 162-20 228 8 81 35 147 33 235-2"
-              fill="none"
-              stroke="var(--color-primary)"
-              strokeWidth="12"
-              strokeLinecap="round"
-            />
-            <path
-              d="M255 304 286 126h72l39 178Z"
-              fill="var(--color-accent-subtle)"
-              stroke="var(--color-ink)"
-              strokeWidth="7"
-            />
-            <path
-              d="M275 199h101M265 251h123"
-              stroke="var(--color-accent)"
-              strokeWidth="13"
-            />
-            <path
-              d="M279 126 293 81h57l16 45ZM310 80V54h23v26"
-              fill="var(--color-highlight-subtle)"
-              stroke="var(--color-ink)"
-              strokeWidth="7"
-            />
-            <path
-              d="M359 105 476 71"
-              stroke="var(--color-highlight)"
-              strokeWidth="18"
-              strokeLinecap="round"
-            />
-          </svg>
-          <span className="preview-caption">
-            The canvas stays clean. The room brings the chaos.
-          </span>
-        </div>
+        </article>
+
       </section>
+
     </main>
   );
 }
@@ -321,15 +269,49 @@ const AVATAR_LAYER_LABELS: Record<AvatarLayerKey, string> = {
   backgroundColor: "Avatar background",
 };
 
+const AVATAR_LAYER_ORDER: readonly AvatarLayerKey[] = [
+  "skinTone",
+  "hairStyle",
+  "hairColor",
+  "eyes",
+  "mouth",
+  "accessory",
+  "backgroundColor",
+];
+
+const AVATAR_LAYER_ICONS: Record<AvatarLayerKey, IconName> = {
+  skinTone: "user",
+  hairStyle: "brush",
+  hairColor: "palette",
+  eyes: "eye",
+  mouth: "circle",
+  accessory: "crown",
+  backgroundColor: "rectangle",
+};
+
+const AVATAR_LAYER_DESCRIPTIONS: Record<AvatarLayerKey, string> = {
+  skinTone: "Choose the tone that feels most like your player.",
+  hairStyle: "Shape the silhouette your friends will spot first.",
+  hairColor: "Give the hairstyle its game-night color.",
+  eyes: "Pick the expression that matches your table energy.",
+  mouth: "Set the smile you will bring into the room.",
+  accessory: "Finish the look with one playful extra.",
+  backgroundColor: "Choose the color behind your avatar in the player list.",
+};
+
 function LayerControl({
   label,
+  layer,
   value,
   options,
+  profile,
   onChange,
 }: {
   label: string;
+  layer: AvatarLayerKey;
   value: string;
   options: readonly (readonly [string, string])[];
+  profile: PlayerProfile;
   onChange: (value: string) => void;
 }) {
   const selectedIndex = options.findIndex(
@@ -375,7 +357,7 @@ function LayerControl({
   }
 
   return (
-    <fieldset className="layer-control">
+    <fieldset className="layer-control layer-control--previews">
       <legend>{label}</legend>
       <div
         className="segmented"
@@ -396,7 +378,22 @@ function LayerControl({
               tabIndex={index === focusableIndex ? 0 : -1}
               onClick={() => onChange(optionValue)}
             >
-              {optionLabel}
+              <span className="layer-choice__preview" aria-hidden="true">
+                <Avatar
+                  name="Option preview"
+                  config={{
+                    ...profile.avatar,
+                    [layer]: optionValue,
+                  } as AvatarConfig}
+                  size={54}
+                />
+              </span>
+              <span className="layer-choice__label">{optionLabel}</span>
+              {isSelected ? (
+                <span className="layer-choice__check" aria-hidden="true">
+                  <Icon name="check" size={15} />
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -405,11 +402,71 @@ function LayerControl({
   );
 }
 
+type ClassicLikeRoomSettings = ClassicRoomSettings | ProRoomSettings;
+
+function isClassicLike(
+  settings: RoomSettings,
+): settings is ClassicLikeRoomSettings {
+  return settings.mode !== "phone";
+}
+
+const MODE_CONTENT: Record<
+  GameMode,
+  {
+    name: string;
+    icon: IconName;
+    description: string;
+    note: string;
+  }
+> = {
+  classic: {
+    name: "Classic",
+    icon: "brush",
+    description: "Take turns drawing while everyone else races to guess.",
+    note: "Scores reward quick correct guesses.",
+  },
+  pro: {
+    name: "Pro",
+    icon: "trophy",
+    description:
+      "Classic play with a cost for throwing out incorrect guesses.",
+    note: "Each incorrect guess subtracts up to 25 points.",
+  },
+  phone: {
+    name: "Phone",
+    icon: "game",
+    description:
+      "Everyone writes, draws, and guesses at the same time in private chains.",
+    note: "Four links · no theme, chat, or scores.",
+  },
+};
+
+function settingsForMode(
+  mode: GameMode,
+  current: RoomSettings,
+): RoomSettings {
+  if (mode === "phone") {
+    return {
+      ...DEFAULT_PHONE_ROOM_SETTINGS,
+      maxPlayers: Math.max(4, current.maxPlayers),
+    };
+  }
+  const classicBase = isClassicLike(current)
+    ? current
+    : {
+        ...DEFAULT_ROOM_SETTINGS,
+        maxPlayers: current.maxPlayers,
+      };
+  return mode === "pro"
+    ? { ...classicBase, mode: "pro" }
+    : { ...classicBase, mode: "classic" };
+}
+
 export function ProfileScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const [profile, setProfile] = useState<PlayerProfile>(() => loadProfile());
-  const [compactLayer, setCompactLayer] =
+  const [activeLayer, setActiveLayer] =
     useState<AvatarLayerKey>("skinTone");
   const [submitted, setSubmitted] = useState(false);
   const parsed = PlayerProfileSchema.safeParse(profile);
@@ -431,10 +488,10 @@ export function ProfileScreen() {
           ...AVATAR_BACKGROUND_OPTIONS,
           [profile.avatar.backgroundColor, "Custom"],
         ];
-  const compactLayerOptions: readonly (readonly [string, string])[] =
-    compactLayer === "backgroundColor"
+  const activeLayerOptions: readonly (readonly [string, string])[] =
+    activeLayer === "backgroundColor"
       ? backgroundOptions
-      : AVATAR_OPTIONS[compactLayer];
+      : AVATAR_OPTIONS[activeLayer];
   const profileError =
     submitted && !parsed.success
       ? `Use a name between ${VALIDATION_LIMITS.playerName.min} and ${VALIDATION_LIMITS.playerName.max} characters.`
@@ -448,6 +505,107 @@ export function ProfileScreen() {
     navigate(next);
   }
 
+  function updateAvatarLayer(layer: AvatarLayerKey, value: string) {
+    setProfile((current) => ({
+      ...current,
+      avatar: {
+        ...current.avatar,
+        [layer]: value,
+      } as AvatarConfig,
+    }));
+  }
+
+  function selectedLabel(layer: AvatarLayerKey): string {
+    const options =
+      layer === "backgroundColor" ? backgroundOptions : AVATAR_OPTIONS[layer];
+    return (
+      options.find(
+        ([value]) =>
+          value.toLowerCase() === profile.avatar[layer].toLowerCase(),
+      )?.[1] ?? "Custom"
+    );
+  }
+
+  function moveActiveLayer(event: KeyboardEvent<HTMLDivElement>) {
+    if (
+      ![
+        "ArrowRight",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowUp",
+        "Home",
+        "End",
+      ].includes(event.key)
+    ) {
+      return;
+    }
+    const tabs = [
+      ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        '[role="tab"]',
+      ),
+    ];
+    if (tabs.length === 0) return;
+    const currentIndex = Math.max(
+      0,
+      tabs.indexOf(document.activeElement as HTMLButtonElement),
+    );
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? tabs.length - 1
+          : (currentIndex +
+              (event.key === "ArrowRight" || event.key === "ArrowDown"
+                ? 1
+                : -1) +
+              tabs.length) %
+            tabs.length;
+    event.preventDefault();
+    tabs[nextIndex]?.focus();
+    tabs[nextIndex]?.click();
+  }
+
+  function surpriseMe() {
+    function randomDifferentValue<T extends string>(
+      options: readonly (readonly [T, string])[],
+      currentValue: T,
+    ): T {
+      const alternatives = options.filter(([value]) => value !== currentValue);
+      return (
+        alternatives[Math.floor(Math.random() * alternatives.length)]?.[0] ??
+        currentValue
+      );
+    }
+
+    setProfile((current) => ({
+      ...current,
+      avatar: {
+        skinTone: randomDifferentValue(
+          AVATAR_OPTIONS.skinTone,
+          current.avatar.skinTone,
+        ),
+        hairStyle: randomDifferentValue(
+          AVATAR_OPTIONS.hairStyle,
+          current.avatar.hairStyle,
+        ),
+        hairColor: randomDifferentValue(
+          AVATAR_OPTIONS.hairColor,
+          current.avatar.hairColor,
+        ),
+        eyes: randomDifferentValue(AVATAR_OPTIONS.eyes, current.avatar.eyes),
+        mouth: randomDifferentValue(AVATAR_OPTIONS.mouth, current.avatar.mouth),
+        accessory: randomDifferentValue(
+          AVATAR_OPTIONS.accessory,
+          current.avatar.accessory,
+        ),
+        backgroundColor: randomDifferentValue(
+          AVATAR_BACKGROUND_OPTIONS,
+          current.avatar.backgroundColor,
+        ),
+      },
+    }));
+  }
+
   return (
     <main
       id="main-content"
@@ -455,9 +613,8 @@ export function ProfileScreen() {
       aria-labelledby="profile-title"
     >
       <PageHeader
-        kicker="Guest profile"
-        title="Make yourself recognizable"
-        description="This name and avatar stay with you for the room. No account or upload needed."
+        title="Build your player"
+        description="This is how friends will spot you in the room. No account or upload needed."
         id="profile-title"
       />
       <SetupFrame
@@ -488,19 +645,51 @@ export function ProfileScreen() {
           onSubmit={submit}
           noValidate
         >
-        <Panel className="avatar-preview-panel">
-          <span className="eyebrow">Live preview</span>
-          <Avatar
-            name={profile.name || "Guest"}
-            config={profile.avatar}
-            size={176}
-          />
-          <strong>{profile.name || "Your name"}</strong>
-          <StatusBadge icon="user" tone="primary">
-            Guest player
-          </StatusBadge>
-        </Panel>
-        <div className="profile-controls">
+        <section className="avatar-stage" aria-label="Live avatar preview">
+          <div className="avatar-stage__meta">
+            <span className="avatar-stage__status">
+              <Icon name="user" size={16} /> Guest player
+            </span>
+            <span className="avatar-stage__privacy">
+              <Icon name="lock" size={15} /> No account
+            </span>
+          </div>
+          <div className="avatar-stage__spotlight">
+            <Avatar
+              key={`${activeLayer}-${profile.avatar[activeLayer]}`}
+              name={profile.name || "Guest"}
+              config={profile.avatar}
+              size={244}
+              className="avatar-stage__avatar"
+            />
+          </div>
+          <div className="avatar-stage__identity">
+            <strong title={profile.name || "Your name"}>
+              {profile.name || "Your name"}
+            </strong>
+            <span>Your private game-night look</span>
+          </div>
+          <Button
+            type="button"
+            variant="quiet"
+            icon="sparkles"
+            className="avatar-stage__surprise"
+            onClick={surpriseMe}
+          >
+            Surprise me
+          </Button>
+        </section>
+
+        <section className="avatar-editor" aria-label="Avatar editor">
+          <div className="avatar-editor__heading">
+            <div>
+              <h2>Make it yours</h2>
+              <p>Choose a layer, then try a look. The preview updates instantly.</p>
+            </div>
+            <span className="avatar-editor__local">
+              <Icon name="lock" size={15} /> Stored on this device
+            </span>
+          </div>
           <Field
             id="guest-name"
             label="Display name"
@@ -516,100 +705,93 @@ export function ProfileScreen() {
               }))
             }
           />
-          <div className="avatar-layers" aria-label="Avatar maker controls">
-            {(
-              Object.entries(AVATAR_OPTIONS) as Array<
-                [
-                  keyof Omit<AvatarConfig, "backgroundColor">,
-                  readonly (readonly [string, string])[],
-                ]
-              >
-            ).map(([key, options]) => (
-                <LayerControl
-                  key={key}
-                  label={AVATAR_LAYER_LABELS[key]}
-                value={profile.avatar[key]}
-                options={options}
-                onChange={(value) =>
-                  setProfile((current) => ({
-                    ...current,
-                    avatar: { ...current.avatar, [key]: value },
-                  }))
-                }
+          <div className="avatar-builder">
+            <div
+              className="avatar-layer-tabs"
+              role="tablist"
+              aria-label="Avatar layers"
+              aria-orientation="vertical"
+              onKeyDown={moveActiveLayer}
+            >
+              {AVATAR_LAYER_ORDER.map((layer) => {
+                const isActive = layer === activeLayer;
+                return (
+                  <button
+                    key={layer}
+                    id={`avatar-layer-${layer}`}
+                    type="button"
+                    className={`avatar-layer-tab ${isActive ? "is-active" : ""}`}
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-controls="avatar-choice-panel"
+                    tabIndex={isActive ? 0 : -1}
+                    onClick={() => setActiveLayer(layer)}
+                  >
+                    <span className="avatar-layer-tab__icon" aria-hidden="true">
+                      <Icon name={AVATAR_LAYER_ICONS[layer]} size={19} />
+                    </span>
+                    <span className="avatar-layer-tab__copy">
+                      <strong>{AVATAR_LAYER_LABELS[layer]}</strong>
+                      <small>{selectedLabel(layer)}</small>
+                    </span>
+                    <Icon name="arrowRight" size={17} />
+                  </button>
+                );
+              })}
+            </div>
+
+            <div
+              key={activeLayer}
+              id="avatar-choice-panel"
+              className="avatar-choice-tray"
+              role="tabpanel"
+              aria-labelledby={`avatar-layer-${activeLayer}`}
+              tabIndex={0}
+            >
+              <header className="avatar-choice-tray__heading">
+                <div>
+                  <h3>{AVATAR_LAYER_LABELS[activeLayer]}</h3>
+                  <p>{AVATAR_LAYER_DESCRIPTIONS[activeLayer]}</p>
+                </div>
+                <span>{activeLayerOptions.length} choices</span>
+              </header>
+              <LayerControl
+                label={`${AVATAR_LAYER_LABELS[activeLayer]} choices`}
+                layer={activeLayer}
+                value={profile.avatar[activeLayer]}
+                options={activeLayerOptions}
+                profile={profile}
+                onChange={(value) => updateAvatarLayer(activeLayer, value)}
               />
-            ))}
-            <LayerControl
-              label="Avatar background"
-              value={profile.avatar.backgroundColor}
-              options={backgroundOptions}
-              onChange={(value) =>
-                setProfile((current) => ({
-                  ...current,
-                  avatar: {
-                    ...current.avatar,
-                    backgroundColor: value,
-                  },
-                }))
-              }
-            />
+            </div>
           </div>
-          <div
-            className="avatar-compact-controls"
-            aria-label="Compact avatar maker controls"
-          >
-            <SelectField
-              id="avatar-feature"
-              label="Avatar feature"
-              value={compactLayer}
-              onChange={(event) =>
-                setCompactLayer(event.target.value as AvatarLayerKey)
-              }
-            >
-              {(
-                Object.entries(AVATAR_LAYER_LABELS) as Array<
-                  [AvatarLayerKey, string]
-                >
-              ).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </SelectField>
-            <SelectField
-              id="avatar-feature-choice"
-              label={`${AVATAR_LAYER_LABELS[compactLayer]} choice`}
-              value={profile.avatar[compactLayer]}
-              onChange={(event) =>
-                setProfile((current) => ({
-                  ...current,
-                  avatar: {
-                    ...current.avatar,
-                    [compactLayer]: event.target.value,
-                  } as AvatarConfig,
-                }))
-              }
-            >
-              {compactLayerOptions.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-        </div>
+        </section>
         </form>
       </SetupFrame>
     </main>
   );
 }
 
-function SetupSteps({ active }: { active: number }) {
-  const steps = ["Profile", "Room settings", "Theme", "Review"];
+function SetupSteps({
+  active,
+  mode,
+}: {
+  active: number;
+  mode: GameMode;
+}) {
+  const steps =
+    mode === "phone"
+      ? ["Profile", "Mode & settings", "Review"]
+      : ["Profile", "Mode & settings", "Theme", "Review"];
   return (
-    <ol className="setup-steps" aria-label={`Step ${active} of 4`}>
+    <ol
+      className={`setup-steps setup-steps--${steps.length}`}
+      aria-label={`Step ${active} of ${steps.length}`}
+    >
       {steps.map((step, index) => (
         <li
           key={step}
+          aria-current={index + 1 === active ? "step" : undefined}
           className={
             index + 1 === active
               ? "is-current"
@@ -629,11 +811,13 @@ function SetupSteps({ active }: { active: number }) {
 
 function SetupFrame({
   active,
+  mode = "classic",
   actions,
   children,
   className = "",
 }: {
   active: number | null;
+  mode?: GameMode;
   actions: ReactNode;
   children: ReactNode;
   className?: string;
@@ -644,30 +828,119 @@ function SetupFrame({
         active ? "setup-frame--with-progress" : "setup-frame--without-progress"
       } ${className}`}
     >
-      {active ? <SetupSteps active={active} /> : null}
+      {active ? <SetupSteps active={active} mode={mode} /> : null}
       <div className="setup-flow__stage">{children}</div>
       <div className="form-actions setup-frame__actions">{actions}</div>
     </Panel>
   );
 }
 
+function ModePicker({
+  mode,
+  onChange,
+  disabled = false,
+}: {
+  mode: GameMode;
+  onChange: (mode: GameMode) => void;
+  disabled?: boolean;
+}) {
+  const modes: readonly GameMode[] = ["classic", "pro", "phone"];
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (disabled) return;
+    if (
+      ![
+        "ArrowRight",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowUp",
+        "Home",
+        "End",
+      ].includes(event.key)
+    ) {
+      return;
+    }
+    const current = modes.indexOf(mode);
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? modes.length - 1
+          : (current +
+              (event.key === "ArrowRight" || event.key === "ArrowDown"
+                ? 1
+                : -1) +
+              modes.length) %
+            modes.length;
+    event.preventDefault();
+    onChange(modes[next]!);
+    document.getElementById(`game-mode-${modes[next]}`)?.focus();
+  }
+  return (
+    <fieldset className="mode-picker" disabled={disabled}>
+      <legend>Game mode</legend>
+      <div
+        className="mode-grid"
+        role="radiogroup"
+        aria-label="Game mode"
+        onKeyDown={onKeyDown}
+      >
+        {modes.map((value) => {
+          const option = MODE_CONTENT[value];
+          const selected = mode === value;
+          return (
+            <button
+              id={`game-mode-${value}`}
+              key={value}
+              type="button"
+              className={`mode-card ${selected ? "is-selected" : ""}`}
+              role="radio"
+              aria-checked={selected}
+              tabIndex={!disabled && selected ? 0 : -1}
+              disabled={disabled}
+              onClick={() => onChange(value)}
+            >
+              <span className="mode-card__icon">
+                <Icon name={option.icon} size={24} />
+              </span>
+              <span className="mode-card__copy">
+                <strong>{option.name}</strong>
+                <span>{option.description}</span>
+                <small>{option.note}</small>
+              </span>
+              {selected ? (
+                <span className="mode-card__selected">
+                  <Icon name="check" size={16} /> Selected
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 export function CreateRoomScreen() {
   const navigate = useNavigate();
-  const { settings, setSettings } = useSetup();
+  const { settings, setSettings, setCustomTheme } = useSetup();
+  const phone = settings.mode === "phone";
+  const classic = isClassicLike(settings) ? settings : null;
+  const stepCount = phone ? 3 : 4;
   return (
     <main
       id="main-content"
-      className="page-shell create-screen"
+      className={`page-shell create-screen create-screen--${settings.mode}`}
       aria-labelledby="create-title"
     >
       <PageHeader
-        kicker="Step 2 of 4"
-        title="Set the pace for the room"
-        description="Choose a relaxed default now. The host can adjust these settings in the lobby."
+        kicker={`Step 2 of ${stepCount}`}
+        title="Choose how the room plays"
+        description="Pick a mode, then set the room rules. The host can adjust these settings in the lobby."
         id="create-title"
       />
       <SetupFrame
         active={2}
+        mode={settings.mode}
         actions={
           <>
             <Button
@@ -682,7 +955,7 @@ export function CreateRoomScreen() {
               form="room-settings-form"
               icon="arrowRight"
             >
-              Choose a theme
+              {phone ? "Review Phone room" : "Choose a theme"}
             </Button>
           </>
         }
@@ -693,105 +966,236 @@ export function CreateRoomScreen() {
             className="settings-form"
             onSubmit={(event) => {
               event.preventDefault();
-              navigate("/themes");
+              navigate(phone ? "/review" : "/themes");
             }}
           >
-            <div className="settings-grid">
-              <SelectField
-                id="player-cap"
-                label="Player cap"
-                value={settings.maxPlayers}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    maxPlayers: Number(event.target.value),
-                  })
+            <ModePicker
+              mode={settings.mode}
+              onChange={(mode) => {
+                if (mode === "phone") {
+                  setCustomTheme(undefined);
                 }
-                help="Between 2 and 12 players."
+                setSettings(settingsForMode(mode, settings));
+              }}
+            />
+            {settings.mode === "phone" ? (
+              <div className="settings-grid">
+                <SelectField
+                  id="phone-player-cap"
+                  label="Player cap"
+                  value={settings.maxPlayers}
+                  help="Phone Mode needs at least 4 players."
+                  onChange={(event) =>
+                    setSettings({
+                      ...settings,
+                      maxPlayers: Number(event.target.value),
+                    })
+                  }
+                >
+                  {[4, 6, 8, 10, 12].map((value) => (
+                    <option key={value} value={value}>
+                      {value} players
+                    </option>
+                  ))}
+                </SelectField>
+                <SelectField
+                  id="phone-text-timer"
+                  label="Text timer"
+                  value={settings.textSeconds}
+                  help="Deadline for writing and guessing phases."
+                  onChange={(event) =>
+                    setSettings({
+                      ...settings,
+                      textSeconds: Number(event.target.value),
+                    })
+                  }
+                >
+                  {[30, 45, 60, 90, 120].map((value) => (
+                    <option key={value} value={value}>
+                      {value} seconds
+                    </option>
+                  ))}
+                </SelectField>
+                <SelectField
+                  id="phone-drawing-timer"
+                  label="Drawing timer"
+                  value={settings.drawingSeconds}
+                  help="Deadline for both drawing phases."
+                  onChange={(event) =>
+                    setSettings({
+                      ...settings,
+                      drawingSeconds: Number(event.target.value),
+                    })
+                  }
+                >
+                  {[60, 90, 120, 150, 180].map((value) => (
+                    <option key={value} value={value}>
+                      {value} seconds
+                    </option>
+                  ))}
+                </SelectField>
+                <div className="fixed-setting">
+                  <span>Story chain</span>
+                  <strong>4 links</strong>
+                  <small>
+                    Sentence → drawing → sentence → drawing
+                  </small>
+                </div>
+              </div>
+            ) : classic ? (
+              <div className="settings-grid">
+                <SelectField
+                  id="player-cap"
+                  label="Player cap"
+                  value={classic.maxPlayers}
+                  help="Between 2 and 12 players."
+                  onChange={(event) =>
+                    setSettings({
+                      ...classic,
+                      maxPlayers: Number(event.target.value),
+                    })
+                  }
+                >
+                  {[2, 4, 6, 8, 10, 12].map((value) => (
+                    <option key={value} value={value}>
+                      {value} players
+                    </option>
+                  ))}
+                </SelectField>
+                <SelectField
+                  id="drawing-cycles"
+                  label="Drawing cycles"
+                  value={classic.drawingCycles}
+                  onChange={(event) =>
+                    setSettings({
+                      ...classic,
+                      drawingCycles: Number(event.target.value),
+                    })
+                  }
+                >
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <option key={value} value={value}>
+                      {value} {value === 1 ? "cycle" : "cycles"}
+                    </option>
+                  ))}
+                </SelectField>
+                <SelectField
+                  id="turn-time"
+                  label="Turn time"
+                  value={classic.turnSeconds}
+                  onChange={(event) =>
+                    setSettings({
+                      ...classic,
+                      turnSeconds: Number(event.target.value),
+                    })
+                  }
+                >
+                  {[45, 60, 80, 90, 120, 180].map((value) => (
+                    <option key={value} value={value}>
+                      {value} seconds
+                    </option>
+                  ))}
+                </SelectField>
+                <SelectField
+                  id="selection-time"
+                  label="Word selection time"
+                  value={classic.wordSelectionSeconds}
+                  onChange={(event) =>
+                    setSettings({
+                      ...classic,
+                      wordSelectionSeconds: Number(event.target.value),
+                    })
+                  }
+                >
+                  {[10, 15, 20, 30].map((value) => (
+                    <option key={value} value={value}>
+                      {value} seconds
+                    </option>
+                  ))}
+                </SelectField>
+              </div>
+            ) : null}
+            {settings.mode === "pro" ? (
+              <Banner
+                tone="warning"
+                icon="alert"
+                title="Incorrect guesses cost up to 25 points"
               >
-                {[2, 4, 6, 8, 10, 12].map((value) => (
-                  <option key={value} value={value}>
-                    {value} players
-                  </option>
-                ))}
-              </SelectField>
-              <SelectField
-                id="drawing-cycles"
-                label="Drawing cycles"
-                value={settings.drawingCycles}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    drawingCycles: Number(event.target.value),
-                  })
-                }
+                The signed score change is immediate and never takes a score
+                below zero. Close guesses are not penalized.
+              </Banner>
+            ) : phone ? (
+              <Banner
+                tone="info"
+                icon="lock"
+                title="Private until the story summary"
               >
-                {[1, 2, 3, 4, 5].map((value) => (
-                  <option key={value} value={value}>
-                    {value} {value === 1 ? "cycle" : "cycles"}
-                  </option>
-                ))}
-              </SelectField>
-              <SelectField
-                id="turn-time"
-                label="Turn time"
-                value={settings.turnSeconds}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    turnSeconds: Number(event.target.value),
-                  })
-                }
-              >
-                {[45, 60, 80, 90, 120, 180].map((value) => (
-                  <option key={value} value={value}>
-                    {value} seconds
-                  </option>
-                ))}
-              </SelectField>
-              <SelectField
-                id="selection-time"
-                label="Word selection"
-                value={settings.wordSelectionSeconds}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    wordSelectionSeconds: Number(event.target.value),
-                  })
-                }
-              >
-                {[10, 15, 20, 30].map((value) => (
-                  <option key={value} value={value}>
-                    {value} seconds
-                  </option>
-                ))}
-              </SelectField>
-            </div>
+                Players act simultaneously. Assigned prompts hide their
+                author, and Phone Mode has no room chat or scores.
+              </Banner>
+            ) : null}
             <Banner tone="info" icon="lock" title="Private by default">
               Rooms are not listed publicly. Only people with the code can
               enter.
             </Banner>
           </form>
           <aside className="setup-summary" aria-label="Room summary">
-          <span className="eyebrow">Current setup</span>
-          <dl>
-            <div>
-              <dt>Players</dt>
-              <dd>Up to {settings.maxPlayers}</dd>
-            </div>
-            <div>
-              <dt>Cycles</dt>
-              <dd>{settings.drawingCycles}</dd>
-            </div>
-            <div>
-              <dt>Turn</dt>
-              <dd>{settings.turnSeconds} sec</dd>
-            </div>
-            <div>
-              <dt>Theme</dt>
-              <dd>{settings.theme.name}</dd>
-            </div>
-          </dl>
+            <h2 className="setup-summary__title">Room setup</h2>
+            <dl>
+              <div>
+                <dt>Mode</dt>
+                <dd>{MODE_CONTENT[settings.mode].name}</dd>
+              </div>
+              <div>
+                <dt>Players</dt>
+                <dd>Up to {settings.maxPlayers}</dd>
+              </div>
+              {settings.mode === "phone" ? (
+                <>
+                  <div>
+                    <dt>Phases</dt>
+                    <dd>4 simultaneous</dd>
+                  </div>
+                  <div>
+                    <dt>Prompts</dt>
+                    <dd>Player-written</dd>
+                  </div>
+                  <div>
+                    <dt>Text timer</dt>
+                    <dd>{settings.textSeconds} sec</dd>
+                  </div>
+                  <div>
+                    <dt>Drawing timer</dt>
+                    <dd>{settings.drawingSeconds} sec</dd>
+                  </div>
+                  <div>
+                    <dt>Theme</dt>
+                    <dd>Skipped</dd>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <dt>Cycles</dt>
+                    <dd>{settings.drawingCycles}</dd>
+                  </div>
+                  <div>
+                    <dt>Turn</dt>
+                    <dd>{settings.turnSeconds} sec</dd>
+                  </div>
+                  <div>
+                    <dt>Selection</dt>
+                    <dd>{settings.wordSelectionSeconds} sec</dd>
+                  </div>
+                  {settings.mode === "pro" ? (
+                    <div>
+                      <dt>Wrong guess</dt>
+                      <dd>−25 points</dd>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </dl>
           </aside>
         </div>
       </SetupFrame>
@@ -804,6 +1208,7 @@ const JOIN_ERROR_TITLES: Record<string, string> = {
   ROOM_NOT_FOUND: "Room not found",
   INVALID_ROOM_CODE: "Room not found",
   ROOM_EXPIRED: "This room has ended",
+  ROOM_STARTED: "This game has already started",
   ROOM_FULL: "Room is full",
   KICKED: "You were removed",
   ACK_TIMEOUT: "The game server is unavailable",
@@ -964,11 +1369,14 @@ export function JoinScreen({ initialError }: JoinScreenProps = {}) {
               <strong>{name || "Guest"}</strong>
               <span>Guest profile · editable before joining</span>
             </div>
-            <IconButton
+            <Button
               icon="settings"
-              label="Edit guest profile"
+              variant="secondary"
+              className="join-identity__edit"
               onClick={() => navigate("/profile?next=/join")}
-            />
+            >
+              Edit profile
+            </Button>
           </div>
           <div className="form-actions">
             <Button
@@ -1057,6 +1465,16 @@ export function ThemeLibraryScreen() {
       .catch(() => setSavedThemes([]));
   }, []);
 
+  useEffect(() => {
+    if (settings.mode === "phone") {
+      navigate("/review", { replace: true });
+    }
+  }, [navigate, settings.mode]);
+
+  if (settings.mode === "phone") {
+    return null;
+  }
+
   const choosePreset = (theme: ThemeMetadata) => {
     setCustomTheme(undefined);
     setSettings({ ...settings, theme: roomTheme(theme) });
@@ -1088,6 +1506,7 @@ export function ThemeLibraryScreen() {
       />
       <SetupFrame
         active={3}
+        mode={settings.mode}
         actions={
           <>
             <Button
@@ -1149,6 +1568,8 @@ export function ReviewRoomScreen() {
   const profile = loadProfile();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
+  const phone = settings.mode === "phone";
+  const step = phone ? 3 : 4;
 
   async function createRoom() {
     const parsedProfile = PlayerProfileSchema.safeParse(profile);
@@ -1162,7 +1583,9 @@ export function ReviewRoomScreen() {
       const established = await roomController.createRoom({
         profile: parsedProfile.data,
         settings,
-        ...(customTheme ? { customTheme } : {}),
+        ...(settings.mode !== "phone" && customTheme
+          ? { customTheme }
+          : {}),
       });
       navigate(`/room/${established.snapshot.code}`, { replace: true });
     } catch (caught) {
@@ -1181,19 +1604,20 @@ export function ReviewRoomScreen() {
       aria-labelledby="review-title"
     >
       <PageHeader
-        kicker="Step 4 of 4"
-        title="Review the room"
-        description="Check the essentials, then open the lobby and invite your players."
+        kicker={`Step ${step} of ${step}`}
+        title={`Review the ${MODE_CONTENT[settings.mode].name} room`}
+        description="Check the rules players will see, then open the lobby and invite everyone."
         id="review-title"
       />
       <SetupFrame
-        active={4}
+        active={step}
+        mode={settings.mode}
         actions={
           <>
             <Button
               variant="secondary"
               icon="arrowLeft"
-              onClick={() => navigate("/themes")}
+              onClick={() => navigate(phone ? "/create" : "/themes")}
             >
               Back
             </Button>
@@ -1213,8 +1637,8 @@ export function ReviewRoomScreen() {
             <div className="review-identity">
               <Avatar name={profile.name} config={profile.avatar} size={64} />
               <div>
-                <span className="eyebrow">Host profile</span>
                 <strong>{profile.name || "Guest"}</strong>
+                <span className="review-identity__role">Host</span>
               </div>
             </div>
             {error ? (
@@ -1227,28 +1651,65 @@ export function ReviewRoomScreen() {
             </Banner>
           </div>
           <aside className="setup-summary" aria-label="Room review">
-            <span className="eyebrow">Final setup</span>
+            <h2 className="setup-summary__title">Room review</h2>
             <dl>
+              <div>
+                <dt>Mode</dt>
+                <dd>{MODE_CONTENT[settings.mode].name}</dd>
+              </div>
               <div>
                 <dt>Players</dt>
                 <dd>Up to {settings.maxPlayers}</dd>
               </div>
-              <div>
-                <dt>Cycles</dt>
-                <dd>{settings.drawingCycles}</dd>
-              </div>
-              <div>
-                <dt>Turn</dt>
-                <dd>{settings.turnSeconds} sec</dd>
-              </div>
-              <div>
-                <dt>Selection</dt>
-                <dd>{settings.wordSelectionSeconds} sec</dd>
-              </div>
-              <div>
-                <dt>Theme</dt>
-                <dd>{settings.theme.name}</dd>
-              </div>
+              {settings.mode === "phone" ? (
+                <>
+                  <div>
+                    <dt>Flow</dt>
+                    <dd>4 simultaneous phases</dd>
+                  </div>
+                  <div>
+                    <dt>Prompts</dt>
+                    <dd>Player-written</dd>
+                  </div>
+                  <div>
+                    <dt>Text timer</dt>
+                    <dd>{settings.textSeconds} sec</dd>
+                  </div>
+                  <div>
+                    <dt>Drawing timer</dt>
+                    <dd>{settings.drawingSeconds} sec</dd>
+                  </div>
+                  <div>
+                    <dt>Chat & scores</dt>
+                    <dd>Off</dd>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <dt>Cycles</dt>
+                    <dd>{settings.drawingCycles}</dd>
+                  </div>
+                  <div>
+                    <dt>Turn</dt>
+                    <dd>{settings.turnSeconds} sec</dd>
+                  </div>
+                  <div>
+                    <dt>Selection</dt>
+                    <dd>{settings.wordSelectionSeconds} sec</dd>
+                  </div>
+                  <div>
+                    <dt>Theme</dt>
+                    <dd>{settings.theme.name}</dd>
+                  </div>
+                  {settings.mode === "pro" ? (
+                    <div>
+                      <dt>Incorrect guess</dt>
+                      <dd>−25 points</dd>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </dl>
           </aside>
         </div>
@@ -1281,6 +1742,16 @@ export function ThemeEditorScreen() {
     void listCustomThemes().then(setSaved).catch(() => setSaved([]));
   }, []);
 
+  useEffect(() => {
+    if (settings.mode === "phone") {
+      navigate("/review", { replace: true });
+    }
+  }, [navigate, settings.mode]);
+
+  if (settings.mode === "phone") {
+    return null;
+  }
+
   function cleanup() {
     const seen = new Set<string>();
     setWordRows((current) =>
@@ -1294,6 +1765,8 @@ export function ThemeEditorScreen() {
   }
 
   async function saveAndSelect() {
+    if (settings.mode === "phone") return;
+    const themeSettings = settings;
     setError(undefined);
     try {
       const stored = await saveCustomTheme({ name, words });
@@ -1304,7 +1777,7 @@ export function ThemeEditorScreen() {
       };
       setCustomTheme(input);
       setSettings({
-        ...settings,
+        ...themeSettings,
         theme: {
           id: stored.id,
           name: stored.name,
@@ -1334,6 +1807,7 @@ export function ThemeEditorScreen() {
       />
       <SetupFrame
         active={3}
+        mode={settings.mode}
         className="setup-flow--editor"
         actions={
           <>
@@ -1707,6 +2181,7 @@ export function LobbyScreen() {
     setError(undefined);
     try {
       if (
+        next.mode !== "phone" &&
         next.theme.isCustom &&
         customTheme?.id === next.theme.id
       ) {
@@ -1789,7 +2264,9 @@ export function LobbyScreen() {
       data-od-id={`${isHost ? "host" : "guest"}-lobby-screen`}
     >
       <PageHeader
-        kicker={isHost ? "Host lobby" : "Guest lobby"}
+        kicker={`${MODE_CONTENT[room.mode].name} · ${
+          isHost ? "Host lobby" : "Guest lobby"
+        }`}
         title="Your sketch room"
         description={
           isHost
@@ -1798,14 +2275,19 @@ export function LobbyScreen() {
         }
         id="lobby-title"
         actions={
-          <StatusBadge
-            tone={connectionStatus === "connected" ? "success" : "warning"}
-            icon={connectionStatus === "connected" ? "wifi" : "wifiOff"}
-          >
-            {connectionStatus === "connected"
-              ? "Connected"
-              : connectionMessage || "Reconnecting"}
-          </StatusBadge>
+          <>
+            <StatusBadge tone="primary" icon={MODE_CONTENT[room.mode].icon}>
+              {MODE_CONTENT[room.mode].name}
+            </StatusBadge>
+            <StatusBadge
+              tone={connectionStatus === "connected" ? "success" : "warning"}
+              icon={connectionStatus === "connected" ? "wifi" : "wifiOff"}
+            >
+              {connectionStatus === "connected"
+                ? "Connected"
+                : connectionMessage || "Reconnecting"}
+            </StatusBadge>
+          </>
         }
       />
       {error ? (
@@ -1822,6 +2304,7 @@ export function LobbyScreen() {
         <PlayersPanel
           players={room.players}
           selfId={room.selfPlayerId}
+          showScores={room.mode !== "phone"}
           showKick={isHost}
           onKick={(playerId) => void kickPlayer(playerId)}
         />
@@ -1836,6 +2319,91 @@ export function LobbyScreen() {
             </StatusBadge>
           </div>
           {isHost ? (
+            <>
+              <ModePicker
+                mode={draftSettings.mode}
+                disabled={controlsDisabled}
+                onChange={(mode) => {
+                  const next = settingsForMode(mode, draftSettings);
+                  void updateSettings({
+                    ...next,
+                    maxPlayers: Math.max(
+                      next.maxPlayers,
+                      room.players.length,
+                      mode === "phone" ? 4 : 2,
+                    ),
+                  });
+                }}
+              />
+              {draftSettings.mode === "phone" ? (
+                <div className="settings-grid">
+                  <SelectField
+                    id="lobby-phone-cap"
+                    label="Player cap"
+                    value={draftSettings.maxPlayers}
+                    disabled={controlsDisabled}
+                    onChange={(event) =>
+                      void updateSettings({
+                        ...draftSettings,
+                        maxPlayers: Number(event.target.value),
+                      })
+                    }
+                  >
+                    {[4, 6, 8, 10, 12].map((value) => (
+                      <option
+                        key={value}
+                        value={value}
+                        disabled={value < room.players.length}
+                      >
+                        {value} players
+                      </option>
+                    ))}
+                  </SelectField>
+                  <SelectField
+                    id="lobby-phone-text"
+                    label="Text timer"
+                    value={draftSettings.textSeconds}
+                    disabled={controlsDisabled}
+                    onChange={(event) =>
+                      void updateSettings({
+                        ...draftSettings,
+                        textSeconds: Number(event.target.value),
+                      })
+                    }
+                  >
+                    {[30, 45, 60, 90, 120].map((value) => (
+                      <option key={value} value={value}>
+                        {value} seconds
+                      </option>
+                    ))}
+                  </SelectField>
+                  <SelectField
+                    id="lobby-phone-drawing"
+                    label="Drawing timer"
+                    value={draftSettings.drawingSeconds}
+                    disabled={controlsDisabled}
+                    onChange={(event) =>
+                      void updateSettings({
+                        ...draftSettings,
+                        drawingSeconds: Number(event.target.value),
+                      })
+                    }
+                  >
+                    {[60, 90, 120, 150, 180].map((value) => (
+                      <option key={value} value={value}>
+                        {value} seconds
+                      </option>
+                    ))}
+                  </SelectField>
+                  <div className="fixed-setting">
+                    <span>Prompts</span>
+                    <strong>Player-written</strong>
+                    <small>
+                      4 links · no theme, chat, scores, or leaderboard.
+                    </small>
+                  </div>
+                </div>
+              ) : (
             <div className="settings-grid">
               <SelectField
                 id="lobby-cap"
@@ -1941,29 +2509,75 @@ export function LobbyScreen() {
                   </option>
                 ))}
               </SelectField>
+              {draftSettings.mode === "pro" ? (
+                <div className="fixed-setting fixed-setting--penalty">
+                  <span>Incorrect guess</span>
+                  <strong>−25 points</strong>
+                  <small>Clamped at zero; close guesses are safe.</small>
+                </div>
+              ) : null}
             </div>
+              )}
+            </>
           ) : (
             <dl className="settings-summary">
+              <div>
+                <dt>Mode</dt>
+                <dd>{MODE_CONTENT[room.mode].name}</dd>
+              </div>
               <div>
                 <dt>Player cap</dt>
                 <dd>{room.settings.maxPlayers} players</dd>
               </div>
-              <div>
-                <dt>Drawing cycles</dt>
-                <dd>{room.settings.drawingCycles}</dd>
-              </div>
-              <div>
-                <dt>Turn time</dt>
-                <dd>{room.settings.turnSeconds} seconds</dd>
-              </div>
-              <div>
-                <dt>Word selection</dt>
-                <dd>{room.settings.wordSelectionSeconds} seconds</dd>
-              </div>
-              <div>
-                <dt>Theme</dt>
-                <dd>{room.settings.theme.name}</dd>
-              </div>
+              {room.mode === "phone" ? (
+                <>
+                  <div>
+                    <dt>Flow</dt>
+                    <dd>4 simultaneous phases</dd>
+                  </div>
+                  <div>
+                    <dt>Prompts</dt>
+                    <dd>Player-written</dd>
+                  </div>
+                  <div>
+                    <dt>Text timer</dt>
+                    <dd>{room.settings.textSeconds} seconds</dd>
+                  </div>
+                  <div>
+                    <dt>Drawing timer</dt>
+                    <dd>{room.settings.drawingSeconds} seconds</dd>
+                  </div>
+                  <div>
+                    <dt>Chat & scores</dt>
+                    <dd>Off</dd>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <dt>Drawing cycles</dt>
+                    <dd>{room.settings.drawingCycles}</dd>
+                  </div>
+                  <div>
+                    <dt>Turn time</dt>
+                    <dd>{room.settings.turnSeconds} seconds</dd>
+                  </div>
+                  <div>
+                    <dt>Word selection</dt>
+                    <dd>{room.settings.wordSelectionSeconds} seconds</dd>
+                  </div>
+                  <div>
+                    <dt>Theme</dt>
+                    <dd>{room.settings.theme.name}</dd>
+                  </div>
+                  {room.mode === "pro" ? (
+                    <div>
+                      <dt>Incorrect guess</dt>
+                      <dd>−25 points</dd>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </dl>
           )}
           {pendingAction === "settings" ? (
@@ -1972,7 +2586,11 @@ export function LobbyScreen() {
             </p>
           ) : null}
           <Banner tone="info" icon="lock" title="Private room">
-            Custom prompts and room chat are visible only to this room.
+            {room.mode === "phone"
+              ? "Assigned authors stay hidden until the synchronized summary."
+              : room.mode === "pro"
+                ? "Room chat stays private and the −25 rule is visible to everyone."
+                : "Custom prompts and room chat are visible only to this room."}
           </Banner>
         </Panel>
       </div>
@@ -1989,12 +2607,21 @@ export function LobbyScreen() {
           <Button
             icon="arrowRight"
             onClick={() => void startGame()}
-            disabled={controlsDisabled || activePlayerCount < 2}
+            disabled={
+              controlsDisabled ||
+              activePlayerCount < (room.mode === "phone" ? 4 : 2)
+            }
             data-testid="start-game"
           >
             {pendingAction === "start"
               ? "Starting…"
-              : `Start game · ${activePlayerCount} players`}
+              : room.mode === "phone" && activePlayerCount < 4
+                ? `Need ${4 - activePlayerCount} more ${
+                    4 - activePlayerCount === 1 ? "player" : "players"
+                  }`
+                : `Start ${MODE_CONTENT[room.mode].name} · ${activePlayerCount} ${
+                    activePlayerCount === 1 ? "player" : "players"
+                  }`}
           </Button>
         ) : (
           <div className="waiting-status" role="status">

@@ -166,6 +166,19 @@
   translate: -50% 0;
 }
 
+:is(.word-list, .saved-themes) .icon-button[data-tooltip]::after {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  max-inline-size: min(12rem, calc(100vw - 2 * var(--page-gutter)));
+  overflow-wrap: anywhere;
+  translate: 0 4px;
+}
+
+:is(.word-list, .saved-themes)
+  .icon-button[data-tooltip]:is(:hover, :focus-visible)::after {
+  translate: 0;
+}
+
 .panel {
   min-inline-size: 0;
   padding: clamp(var(--space-4), 2vw, var(--space-6));

@@ -1,12 +1,18 @@
 import {
   DEFAULT_AVATAR,
+  DEFAULT_PHONE_ROOM_SETTINGS,
   DEFAULT_ROOM_SETTINGS,
   type AckEnvelope,
+  type ClassicPlayerRoomSnapshot,
+  type ClassicRoomPhase,
   type DrawingEnvelope,
+  type PhoneActivePhase,
+  type PhoneDrawingDraft,
+  type PhoneDrawingEnvelope,
+  type PhonePrompt,
   type PlayerPublic,
   type PlayerRoomSnapshot,
   type ReplayState,
-  type RoomPhase,
   type RoundPrivate,
   type SessionEstablished,
 } from "@gtd/contracts";
@@ -34,7 +40,7 @@ export function makePlayer(
 interface SnapshotOptions {
   revision?: number;
   selfPlayerId?: string;
-  phase?: RoomPhase;
+  phase?: ClassicRoomPhase;
   turnId?: string;
   drawerId?: string;
   privateRound?: RoundPrivate | null;
@@ -45,7 +51,7 @@ interface SnapshotOptions {
 
 export function makeSnapshot(
   options: SnapshotOptions = {},
-): PlayerRoomSnapshot {
+): ClassicPlayerRoomSnapshot {
   const revision = options.revision ?? 1;
   const phase = options.phase ?? "drawing";
   const turnId = options.turnId ?? "turn-1";
@@ -63,6 +69,7 @@ export function makeSnapshot(
     ];
 
   return {
+    mode: "classic",
     code: "ABC234",
     revision,
     phase,
@@ -112,6 +119,129 @@ export function makeSnapshot(
     expiresAt: 500_000,
     selfPlayerId: options.selfPlayerId ?? "player-2",
     privateRound: options.privateRound ?? null,
+  };
+}
+
+export type PhoneActiveSnapshot = Extract<
+  PlayerRoomSnapshot,
+  { mode: "phone"; phone: { deadline: number } }
+>;
+
+export function makePhoneWritingSnapshot(
+  overrides: Partial<PhoneActiveSnapshot> = {},
+): PhoneActiveSnapshot {
+  const players = [
+    makePlayer("player-1", { name: "Maya", joinOrder: 0 }),
+    makePlayer("player-2", {
+      name: "Noah",
+      joinOrder: 1,
+      isHost: false,
+    }),
+    makePlayer("player-3", {
+      name: "Priya",
+      joinOrder: 2,
+      isHost: false,
+    }),
+    makePlayer("player-4", {
+      name: "Leo",
+      joinOrder: 3,
+      isHost: false,
+    }),
+  ];
+  const base: PhoneActiveSnapshot = {
+    mode: "phone",
+    code: "ABC234",
+    revision: 1,
+    phase: "phone-writing",
+    settings: DEFAULT_PHONE_ROOM_SETTINGS,
+    players,
+    round: null,
+    drawing: null,
+    phone: {
+      matchId: "phone-match-1",
+      phase: "phone-writing",
+      deadline: 70_000,
+      submittedCount: 0,
+      totalCount: players.length,
+      participants: players.map((player) => ({
+        playerId: player.id,
+        playerName: player.name,
+        avatar: player.avatar,
+        status: "working",
+      })),
+    },
+    chat: [],
+    serverTime: 10_000,
+    createdAt: 1_000,
+    expiresAt: 500_000,
+    selfPlayerId: "player-2",
+    privatePhone: {
+      matchId: "phone-match-1",
+      phase: "phone-writing",
+      assignmentId: "assignment-1",
+      prompt: null,
+      skippedEntryCount: 0,
+      draft: null,
+      submitted: false,
+    },
+  };
+  return { ...base, ...overrides };
+}
+
+export function makePhoneDrawingEnvelope(
+  serverSequence = 1,
+  assignmentId = "assignment-1",
+): PhoneDrawingEnvelope {
+  return {
+    assignmentId,
+    strokeId: `phone-stroke-${serverSequence}`,
+    chunkId: 0,
+    serverSequence,
+    operation: {
+      kind: "shape",
+      opId: `phone-op-${serverSequence}`,
+      shape: "line",
+      style: {
+        color: "#112244",
+        size: 6,
+        fill: false,
+      },
+      start: { x: 120, y: 90 },
+      end: { x: 520, y: 360 },
+    },
+  };
+}
+
+export function makePhonePhaseSnapshot(
+  phase: PhoneActivePhase,
+  options: {
+    prompt?: PhonePrompt | null;
+    draft?: PhoneDrawingDraft | null;
+    submitted?: boolean;
+    skippedEntryCount?: number;
+    selfPlayerId?: string;
+  } = {},
+): PhoneActiveSnapshot {
+  const base = makePhoneWritingSnapshot();
+  if (!base.privatePhone) {
+    throw new Error("Expected the Phone fixture to include private state.");
+  }
+  return {
+    ...base,
+    phase,
+    selfPlayerId: options.selfPlayerId ?? base.selfPlayerId,
+    phone: {
+      ...base.phone,
+      phase,
+    },
+    privatePhone: {
+      ...base.privatePhone,
+      phase,
+      prompt: options.prompt ?? null,
+      draft: options.draft ?? null,
+      submitted: options.submitted ?? false,
+      skippedEntryCount: options.skippedEntryCount ?? 0,
+    },
   };
 }
 

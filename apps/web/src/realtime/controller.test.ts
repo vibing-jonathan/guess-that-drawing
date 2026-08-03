@@ -10,6 +10,8 @@ import {
   ackSuccess,
   makeEnvelope,
   makeEstablished,
+  makePhoneDrawingEnvelope,
+  makePhoneWritingSnapshot,
   makeSnapshot,
 } from "../state/__tests__/fixtures";
 import { createRoomStore } from "../state/room-store";
@@ -133,6 +135,26 @@ afterEach(() => {
 });
 
 describe("RoomRealtimeController", () => {
+  it("shows browser offline status immediately and reconnects when back online", () => {
+    const socket = new MockGameSocket();
+    const store = createRoomStore();
+    const controller = new RoomRealtimeController({
+      socket: socket.asGameSocket(),
+      store,
+    });
+    controller.start();
+
+    window.dispatchEvent(new Event("offline"));
+    expect(store.getState().connectionStatus).toBe("offline");
+    expect(store.getState().connectionMessage).toBe(
+      "Offline. Reconnect to continue.",
+    );
+
+    window.dispatchEvent(new Event("online"));
+    expect(store.getState().connectionStatus).toBe("connected");
+    controller.stop();
+  });
+
   it("creates a room, persists credentials, and resumes after reconnect", async () => {
     const socket = new MockGameSocket();
     const store = createRoomStore();
@@ -405,7 +427,7 @@ describe("RoomRealtimeController", () => {
           kind: "close",
           turnId: "turn-1",
           message: "Very close!",
-          scoreAwarded: 0,
+          scoreDelta: 0,
           placement: null,
         },
         2,
@@ -429,6 +451,129 @@ describe("RoomRealtimeController", () => {
       expect(request?.payload).toHaveProperty("mutation.idempotencyId");
     }
     controller.stop();
+  });
+
+  it("sends every Phone mutation with idempotency metadata and keeps drawing batches private", async () => {
+    const socket = new MockGameSocket();
+    const store = createRoomStore();
+    const drawingEvents = vi.fn();
+    const assignmentId = "assignment-1";
+    socket.respondOnce(
+      "phone:text:submit",
+      ackSuccess({
+        revision: 2,
+        assignmentId,
+        submittedAt: 12_000,
+      }),
+    );
+    socket.respondOnce(
+      "phone:drawing:batch",
+      ackSuccess({
+        revision: 3,
+        assignmentId,
+        acceptedThroughSequence: 1,
+      }),
+    );
+    socket.respondOnce(
+      "phone:drawing:submit",
+      ackSuccess({
+        revision: 4,
+        assignmentId,
+        submittedAt: 13_000,
+      }),
+    );
+    socket.respondOnce(
+      "phone:summary:navigate",
+      ackSuccess({
+        revision: 5,
+        phone: {
+          matchId: "phone-match-1",
+          phase: "final-results" as const,
+          storyCount: 4,
+        },
+      }),
+    );
+    const controller = new RoomRealtimeController({
+      socket: socket.asGameSocket(),
+      store,
+      onDrawingEnvelopes: drawingEvents,
+    });
+    controller.start();
+
+    await controller.submitPhoneText(assignmentId, "A lighthouse on wheels");
+    await controller.sendPhoneDrawingBatch({
+      assignmentId,
+      strokeId: "phone-stroke-1",
+      chunkId: 0,
+      operations: [makePhoneDrawingEnvelope().operation],
+    });
+    await controller.submitPhoneDrawing(assignmentId);
+    await controller.navigatePhoneSummary("finish");
+
+    for (const event of [
+      "phone:text:submit",
+      "phone:drawing:batch",
+      "phone:drawing:submit",
+      "phone:summary:navigate",
+    ] as const) {
+      const request = socket.emitted.find((entry) => entry.event === event);
+      expect(request?.payload).toHaveProperty("mutation.idempotencyId");
+      expect(request?.payload).not.toHaveProperty(
+        "mutation.expectedRevision",
+      );
+    }
+    expect(drawingEvents).not.toHaveBeenCalled();
+    controller.stop();
+  });
+
+  it("applies public and private Phone state events and removes their listeners on stop", () => {
+    const socket = new MockGameSocket();
+    const store = createRoomStore();
+    const snapshot = makePhoneWritingSnapshot({ revision: 1 });
+    const controller = new RoomRealtimeController({
+      socket: socket.asGameSocket(),
+      store,
+    });
+    controller.start();
+    socket.serverEmit("room:snapshot", snapshot);
+
+    socket.serverEmit("phone:state", {
+      revision: 4,
+      phone: {
+        ...snapshot.phone,
+        submittedCount: 1,
+        participants: snapshot.phone.participants.map((participant) =>
+          participant.playerId === "player-1"
+            ? { ...participant, status: "submitted" as const }
+            : participant,
+        ),
+      },
+    });
+    socket.serverEmit("phone:private", {
+      revision: 4,
+      privatePhone: {
+        ...snapshot.privatePhone!,
+        prompt: {
+          kind: "text",
+          text: "A lighthouse on wheels",
+        },
+        skippedEntryCount: 1,
+      },
+    });
+
+    expect(store.getState().room?.revision).toBe(4);
+    expect(store.getState().syncStatus).toBe("synced");
+    const room = store.getState().room;
+    expect(room?.mode === "phone" ? room.privatePhone?.prompt : null).toEqual({
+      kind: "text",
+      text: "A lighthouse on wheels",
+    });
+    expect(socket.listenerCount("phone:state")).toBe(1);
+    expect(socket.listenerCount("phone:private")).toBe(1);
+
+    controller.stop();
+    expect(socket.listenerCount("phone:state")).toBe(0);
+    expect(socket.listenerCount("phone:private")).toBe(0);
   });
 
   it("surfaces negative acknowledgements and acknowledgement timeouts", async () => {

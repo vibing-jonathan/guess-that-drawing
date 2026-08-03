@@ -528,6 +528,11 @@
   text-align: end;
 }
 
+.player-row__delta.is-negative,
+.leaderboard__delta.is-negative {
+  color: var(--color-on-danger-subtle);
+}
+
 .timer {
   display: grid;
   grid-template-columns: auto auto auto;

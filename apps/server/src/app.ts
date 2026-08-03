@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -8,7 +8,11 @@ import {
   type HealthResponse,
   type ThemesResponse,
 } from "@gtd/contracts";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from "fastify";
 import type { ServerConfig } from "./config.js";
 import { GameEngine } from "./engine.js";
 import type { GamePersistence } from "./persistence.js";
@@ -88,6 +92,27 @@ export async function buildApplication(options: {
     referrerPolicy: { policy: "no-referrer" },
   });
 
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (request.protocol === "https") {
+      return payload;
+    }
+    const policy = reply.getHeader("content-security-policy");
+    if (typeof policy === "string") {
+      reply.header(
+        "content-security-policy",
+        policy
+          .split(";")
+          .map((directive) => directive.trim())
+          .filter(
+            (directive) =>
+              directive.length > 0 && directive !== "upgrade-insecure-requests",
+          )
+          .join(";"),
+      );
+    }
+    return payload;
+  });
+
   const io = createSocketServer(app.server, config.webOrigins);
   const engine = new GameEngine({
     persistence,
@@ -129,25 +154,46 @@ export async function buildApplication(options: {
 
   const webIndexPath = join(config.webDistDirectory, "index.html");
   const hasWebBuild = existsSync(webIndexPath);
-  if (hasWebBuild) {
-    await app.register(fastifyStatic, {
-      root: config.webDistDirectory,
-      prefix: "/",
-      wildcard: false,
-    });
-  }
-
-  app.setNotFoundHandler(async (request, reply) => {
+  const webIndex = hasWebBuild ? readFileSync(webIndexPath) : undefined;
+  const webAssetsDirectory = join(config.webDistDirectory, "assets");
+  app.log.info(
+    { webBuildAvailable: hasWebBuild, webDistDirectory: config.webDistDirectory },
+    "web build checked",
+  );
+  const sendWebIndex = async (request: FastifyRequest, reply: FastifyReply) => {
     if (
-      hasWebBuild &&
+      webIndex &&
       request.method === "GET" &&
-      !request.url.startsWith("/api/") &&
-      request.headers.accept?.includes("text/html")
+      !request.url.startsWith("/api/")
     ) {
       return reply
         .header("cache-control", "no-store")
         .type("text/html; charset=utf-8")
-        .sendFile("index.html");
+        .send(webIndex);
+    }
+    return reply.code(404).send({
+      error: "Not Found",
+      message: "The requested resource does not exist.",
+    });
+  };
+  if (existsSync(webAssetsDirectory)) {
+    await app.register(fastifyStatic, {
+      root: webAssetsDirectory,
+      prefix: "/assets/",
+      wildcard: false,
+      index: false,
+    });
+  }
+  if (hasWebBuild) {
+    // Keep the SPA entry point outside the static plugin's encapsulated 404
+    // handler, including direct visits to client-side routes.
+    app.get("/", sendWebIndex);
+    app.get("/*", sendWebIndex);
+  }
+
+  app.setNotFoundHandler(async (request, reply) => {
+    if (hasWebBuild) {
+      return sendWebIndex(request, reply);
     }
     return reply.code(404).send({
       error: "Not Found",

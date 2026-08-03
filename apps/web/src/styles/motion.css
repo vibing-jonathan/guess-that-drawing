@@ -1,0 +1,777 @@
+/*
+ * Motion language
+ * - The home sketch is the authored moment: the prompt lands, then the ink draws.
+ * - Setup, game phases, and overlays use motion only to explain state or direction.
+ * - All movement is CSS-only, bounded, and removed for reduced-motion users.
+ */
+
+:root {
+  --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Drawing-specific focal sequence */
+
+.tabletop-preview {
+  animation: tabletop-uncover var(--motion-max) var(--ease-arrive) both;
+}
+
+.prompt-slip {
+  transform-origin: 28% 0;
+  animation: prompt-slip-land var(--motion-emphasis) 40ms var(--ease-arrive) both;
+}
+
+.home-sketch path {
+  stroke-dasharray: 1800;
+  animation: sketch-ink-draw var(--motion-max) var(--ease-arrive) both;
+}
+
+.home-sketch path:nth-of-type(1) {
+  animation-delay: 40ms;
+}
+
+.home-sketch path:nth-of-type(2) {
+  animation-delay: 80ms;
+}
+
+.home-sketch path:nth-of-type(3) {
+  animation-delay: 120ms;
+}
+
+.home-sketch path:nth-of-type(4) {
+  animation-delay: 140ms;
+}
+
+@keyframes tabletop-uncover {
+  from {
+    clip-path: inset(0 9% 0 0 round var(--radius-xl));
+    filter: saturate(0.82);
+  }
+  to {
+    clip-path: inset(0 round var(--radius-xl));
+    filter: saturate(1);
+  }
+}
+
+@keyframes prompt-slip-land {
+  from {
+    opacity: 0;
+    transform: translate3d(-0.5rem, -1rem, 0) rotate(-3deg) scale(0.96);
+    box-shadow: var(--shadow-flat);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0) scale(1);
+    box-shadow: var(--shadow-raised);
+  }
+}
+
+@keyframes sketch-ink-draw {
+  0% {
+    stroke-dashoffset: 1800;
+    fill-opacity: 0;
+  }
+  68% {
+    fill-opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    fill-opacity: 1;
+  }
+}
+
+/* Immediate control acknowledgment */
+
+.button > .icon,
+.icon-button > .icon,
+.tool-choice > .icon {
+  transition:
+    scale 120ms var(--ease-out),
+    rotate var(--motion-fast) var(--ease-out);
+}
+
+:is(.button, .icon-button, .tool-choice):active:not(:disabled) > .icon {
+  scale: 0.86;
+}
+
+:is(
+  .icon-button,
+  .tool-choice,
+  .segmented button,
+  .mode-card,
+  .theme-card,
+  .word-choice-list button,
+  .swatch
+).is-selected {
+  animation: selection-lock 180ms var(--ease-arrive);
+}
+
+:is(.mode-card, .theme-card, .word-choice-list button).is-selected .icon {
+  animation: selection-mark 220ms 35ms var(--ease-arrive) both;
+}
+
+@keyframes selection-lock {
+  0% {
+    scale: 0.985;
+  }
+  58% {
+    scale: 1.015;
+  }
+  100% {
+    scale: 1;
+  }
+}
+
+@keyframes selection-mark {
+  from {
+    opacity: 0.45;
+    scale: 0.7;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+/* Progress continuity */
+
+.setup-steps li,
+.phone-phase-progress li,
+.setup-steps li > span,
+.phone-phase-progress li > span {
+  transition:
+    background-color var(--motion-base) var(--ease-out),
+    border-color var(--motion-base) var(--ease-out),
+    color var(--motion-base) var(--ease-out),
+    box-shadow var(--motion-base) var(--ease-out);
+}
+
+.setup-steps li.is-current > span,
+.phone-phase-progress li.is-current > span {
+  animation: current-step-arrive 260ms var(--ease-arrive);
+}
+
+@keyframes current-step-arrive {
+  0% {
+    filter: saturate(0.72);
+    scale: 0.86;
+  }
+  58% {
+    filter: saturate(1.12);
+    scale: 1.04;
+  }
+  100% {
+    filter: saturate(1);
+    scale: 1;
+  }
+}
+
+/* Avatar Layer Studio: each choice lands like a freshly swapped animation cel. */
+
+.avatar-stage__avatar {
+  transform-origin: 50% 64%;
+  animation: avatar-layer-deal 260ms var(--ease-arrive) both;
+}
+
+.avatar-choice-tray {
+  animation: avatar-tray-arrive 220ms var(--ease-arrive) both;
+}
+
+.avatar-layer-tab > .icon:last-child,
+.avatar-layer-tab__icon {
+  transition:
+    color var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+.avatar-layer-tab.is-active > .icon:last-child {
+  transform: translate3d(0.15rem, 0, 0);
+}
+
+.avatar-layer-tab.is-active .avatar-layer-tab__icon {
+  transform: rotate(-3deg) scale(1.04);
+}
+
+@keyframes avatar-layer-deal {
+  0% {
+    clip-path: inset(5% 8% 3% 8% round 1.5rem);
+    filter: saturate(0.72) drop-shadow(0 0.35rem 0.45rem oklch(0.24 0.1 265 / 0.22));
+    transform: translate3d(0, 0.35rem, 0) rotate(-1.5deg) scale(0.965);
+  }
+  64% {
+    clip-path: inset(0 round 1.5rem);
+    filter: saturate(1.12) drop-shadow(0 0.8rem 0.95rem oklch(0.24 0.1 265 / 0.36));
+    transform: translate3d(0, -0.08rem, 0) rotate(0.5deg) scale(1.015);
+  }
+  100% {
+    clip-path: inset(0 round 1.5rem);
+    filter: saturate(1) drop-shadow(0 0.75rem 0.9rem oklch(0.24 0.1 265 / 0.34));
+    transform: translate3d(0, 0, 0) rotate(0) scale(1);
+  }
+}
+
+@keyframes avatar-tray-arrive {
+  from {
+    clip-path: inset(0 0 10% 0 round var(--radius-lg));
+    filter: saturate(0.82);
+    transform: translate3d(0.25rem, 0, 0);
+  }
+  to {
+    clip-path: inset(0 round var(--radius-lg));
+    filter: saturate(1);
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Spatial continuity for protected choices and mobile support panels */
+
+.dialog-layer,
+.word-select-layer,
+.sheet-scrim {
+  animation: scrim-arrive 160ms ease-out both;
+}
+
+.dialog,
+.word-select-dialog {
+  transform-origin: 50% 0;
+  animation: choice-deal var(--motion-max) var(--ease-arrive) both;
+}
+
+.sheet {
+  animation: sheet-rise 300ms var(--ease-arrive) both;
+}
+
+@keyframes scrim-arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes choice-deal {
+  from {
+    clip-path: inset(0 0 22% 0 round var(--radius-xl));
+    opacity: 0;
+    transform: translate3d(0, -0.75rem, 0) scale(0.985);
+  }
+  to {
+    clip-path: inset(0 round var(--radius-xl));
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes sheet-rise {
+  from {
+    transform: translate3d(0, 100%, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes sheet-slide-in {
+  from {
+    transform: translate3d(100%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (max-width: 1023px) and (orientation: landscape) and (max-height: 560px) {
+  .sheet {
+    animation-name: sheet-slide-in;
+  }
+}
+
+/* State changes that benefit from a clear arrival */
+
+.chat-message,
+.chat-event,
+.phone-submitted-state,
+.story-guest-waiting {
+  animation: state-arrive 220ms var(--ease-arrive) both;
+}
+
+.timer--warning,
+.timer--urgent {
+  animation: timer-state-change 240ms var(--ease-arrive);
+}
+
+@keyframes state-arrive {
+  from {
+    clip-path: inset(0 0 28% 0 round var(--radius-md));
+    opacity: 0;
+    transform: translate3d(0, 0.35rem, 0);
+  }
+  to {
+    clip-path: inset(0 round var(--radius-md));
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes timer-state-change {
+  0% {
+    scale: 1;
+  }
+  55% {
+    scale: 1.035;
+  }
+  100% {
+    scale: 1;
+  }
+}
+
+/* A Phone Mode story is a sequence, so its links reveal as one bounded list. */
+
+.story-entry {
+  animation: story-link-reveal var(--motion-max) var(--ease-arrive) both;
+}
+
+.story-entry:nth-child(2) {
+  animation-delay: 60ms;
+}
+
+.story-entry:nth-child(3) {
+  animation-delay: 120ms;
+}
+
+.story-entry:nth-child(4) {
+  animation-delay: 180ms;
+}
+
+@keyframes story-link-reveal {
+  from {
+    clip-path: inset(0 10% 0 0 round var(--radius-xl));
+    opacity: 0;
+    transform: translate3d(0.75rem, 0, 0);
+  }
+  to {
+    clip-path: inset(0 round var(--radius-xl));
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Game-night feedback: one shared stage for consequential moments. */
+
+.sound-toggle {
+  position: fixed;
+  z-index: var(--z-toast);
+  inset-block-start: max(var(--space-3), var(--safe-top));
+  inset-inline-end: max(var(--space-3), var(--safe-right));
+  box-shadow: var(--shadow-raised);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    scale var(--motion-fast) var(--ease-out);
+}
+
+.sound-toggle:hover:not(:disabled) {
+  scale: 1.06;
+}
+
+.sound-toggle:active:not(:disabled) {
+  scale: 0.94;
+}
+
+.sound-toggle.icon-button[data-tooltip]::after {
+  inset-block-start: calc(100% + var(--space-2));
+  inset-block-end: auto;
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  translate: 0 -4px;
+}
+
+.sound-toggle.icon-button[data-tooltip]:is(:hover, :focus-visible)::after {
+  translate: 0;
+}
+
+.game-moment-layer {
+  position: fixed;
+  z-index: var(--z-critical);
+  inset-block-start: max(4.5rem, calc(var(--safe-top) + 4.5rem));
+  inset-inline: var(--page-gutter);
+  display: grid;
+  place-items: start center;
+  pointer-events: none;
+}
+
+.game-moment {
+  --moment-surface: var(--color-primary-subtle);
+  --moment-border: var(--color-primary);
+  --moment-ink: var(--color-on-primary-subtle);
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  inline-size: min(100%, 28rem);
+  min-block-size: 4.75rem;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-standard) solid var(--moment-border);
+  border-radius: var(--radius-lg);
+  background: var(--moment-surface);
+  box-shadow: var(--shadow-overlay);
+  color: var(--moment-ink);
+  isolation: isolate;
+  animation: game-moment-deal 520ms var(--ease-arrive) both;
+}
+
+.game-moment--coral {
+  --moment-surface: var(--color-accent-subtle);
+  --moment-border: var(--color-accent);
+  --moment-ink: var(--color-on-accent-subtle);
+}
+
+.game-moment--teal {
+  --moment-surface: var(--color-success-subtle);
+  --moment-border: var(--color-success);
+  --moment-ink: var(--color-on-success-subtle);
+}
+
+.game-moment--yellow {
+  --moment-surface: var(--color-highlight-subtle);
+  --moment-border: var(--color-highlight-border);
+  --moment-ink: var(--color-on-highlight-subtle);
+}
+
+.game-moment__icon {
+  display: grid;
+  inline-size: 3rem;
+  block-size: 3rem;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: var(--moment-border);
+  color: var(--color-canvas);
+  transform-origin: 50% 60%;
+  animation: game-moment-stamp 620ms 90ms var(--ease-arrive) both;
+}
+
+.game-moment--yellow .game-moment__icon {
+  color: var(--color-on-highlight);
+}
+
+.game-moment__copy {
+  display: grid;
+  gap: var(--space-1);
+  min-inline-size: 0;
+}
+
+.game-moment__copy strong {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-heading);
+}
+
+.game-moment__copy > span {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: var(--leading-ui);
+}
+
+.game-moment__burst {
+  position: absolute;
+  z-index: -1;
+  inset: 50%;
+}
+
+.game-moment__burst i {
+  --particle-x: 0rem;
+  --particle-y: -5rem;
+  position: absolute;
+  inline-size: 0.45rem;
+  block-size: 0.8rem;
+  border-radius: var(--radius-xs);
+  background: var(--color-primary);
+  animation: game-particle-fly 780ms 140ms var(--ease-arrive) both;
+}
+
+.game-moment__burst i:nth-child(1) { --particle-x: -13rem; --particle-y: -5rem; background: var(--color-accent); rotate: -24deg; }
+.game-moment__burst i:nth-child(2) { --particle-x: -10rem; --particle-y: -8rem; background: var(--color-highlight); rotate: 18deg; }
+.game-moment__burst i:nth-child(3) { --particle-x: -6rem; --particle-y: -6rem; background: var(--color-success); rotate: 42deg; }
+.game-moment__burst i:nth-child(4) { --particle-x: -2rem; --particle-y: -8.5rem; background: var(--color-primary); rotate: -12deg; }
+.game-moment__burst i:nth-child(5) { --particle-x: 3rem; --particle-y: -8rem; background: var(--color-accent); rotate: 35deg; }
+.game-moment__burst i:nth-child(6) { --particle-x: 8rem; --particle-y: -7rem; background: var(--color-highlight); rotate: -32deg; }
+.game-moment__burst i:nth-child(7) { --particle-x: 13rem; --particle-y: -4rem; background: var(--color-success); rotate: 22deg; }
+.game-moment__burst i:nth-child(8) { --particle-x: -12rem; --particle-y: 4rem; background: var(--color-primary); rotate: 45deg; }
+.game-moment__burst i:nth-child(9) { --particle-x: -7rem; --particle-y: 6rem; background: var(--color-accent); rotate: -40deg; }
+.game-moment__burst i:nth-child(10) { --particle-x: 5rem; --particle-y: 6rem; background: var(--color-highlight); rotate: 28deg; }
+.game-moment__burst i:nth-child(11) { --particle-x: 10rem; --particle-y: 5rem; background: var(--color-success); rotate: -18deg; }
+.game-moment__burst i:nth-child(12) { --particle-x: 13rem; --particle-y: 2rem; background: var(--color-primary); rotate: 38deg; }
+
+@keyframes game-moment-deal {
+  0% {
+    clip-path: inset(0 48% 0 48% round var(--radius-lg));
+    filter: saturate(0.65) blur(3px);
+    opacity: 0.35;
+    transform: translate3d(0, -1rem, 0) rotate(-1.5deg) scale(0.92);
+  }
+  68% {
+    clip-path: inset(0 round var(--radius-lg));
+    filter: saturate(1.12) blur(0);
+    opacity: 1;
+    transform: translate3d(0, 0.1rem, 0) rotate(0.5deg) scale(1.025);
+  }
+  100% {
+    clip-path: inset(0 round var(--radius-lg));
+    filter: saturate(1) blur(0);
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0) scale(1);
+  }
+}
+
+@keyframes game-moment-stamp {
+  0% {
+    filter: saturate(0.75);
+    opacity: 0;
+    transform: rotate(-18deg) scale(0.35);
+  }
+  62% {
+    filter: saturate(1.2);
+    opacity: 1;
+    transform: rotate(5deg) scale(1.15);
+  }
+  100% {
+    filter: saturate(1);
+    opacity: 1;
+    transform: rotate(0) scale(1);
+  }
+}
+
+@keyframes game-particle-fly {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.5);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--particle-x), var(--particle-y), 0) scale(1) rotate(140deg);
+  }
+}
+
+/* Roster, score, and countdown changes answer with immediate physicality. */
+
+.player-list .player-row {
+  animation: player-takes-seat 380ms var(--ease-arrive) both;
+}
+
+.player-list .player-row:nth-child(2) { animation-delay: 45ms; }
+.player-list .player-row:nth-child(3) { animation-delay: 90ms; }
+.player-list .player-row:nth-child(4) { animation-delay: 135ms; }
+.player-list .player-row:nth-child(n + 5) { animation-delay: 180ms; }
+
+.player-row--disconnected {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-subtle);
+  filter: saturate(0.7);
+  opacity: 0.76;
+}
+
+.player-row--disconnected .avatar {
+  scale: 0.94;
+}
+
+.player-row,
+.player-row .avatar {
+  transition:
+    background-color var(--motion-base) var(--ease-out),
+    border-color var(--motion-base) var(--ease-out),
+    filter var(--motion-base) var(--ease-out),
+    opacity var(--motion-base) var(--ease-out),
+    scale var(--motion-base) var(--ease-out);
+}
+
+.player-row__score {
+  transform-origin: 50% 70%;
+  animation: score-pop 460ms var(--ease-arrive) both;
+}
+
+.timer--urgent > .numeric {
+  transform-origin: 50% 70%;
+  animation: countdown-punch 300ms var(--ease-arrive) both;
+}
+
+.leaderboard > li {
+  animation: scorecard-deal 420ms var(--ease-arrive) both;
+}
+
+.leaderboard > li:nth-child(2) { animation-delay: 55ms; }
+.leaderboard > li:nth-child(3) { animation-delay: 110ms; }
+.leaderboard > li:nth-child(4) { animation-delay: 165ms; }
+.leaderboard > li:nth-child(n + 5) { animation-delay: 210ms; }
+
+.leaderboard__delta,
+.leaderboard__score {
+  animation: score-pop 520ms 120ms var(--ease-arrive) both;
+}
+
+.winner-mark {
+  transform-origin: 50% 65%;
+  animation: winner-crown 720ms 80ms var(--ease-arrive) both;
+}
+
+.winner-score {
+  animation: winning-score-reveal 620ms 180ms var(--ease-arrive) both;
+}
+
+.guesser-action-row .banner--success .icon,
+.guesser-action-row .banner--warning .icon {
+  animation: feedback-icon-pop 460ms var(--ease-arrive) both;
+}
+
+@keyframes player-takes-seat {
+  from {
+    clip-path: inset(0 18% 0 0 round var(--radius-md));
+    filter: saturate(0.78);
+    opacity: 0;
+    transform: translate3d(0.7rem, -0.25rem, 0) rotate(0.6deg);
+  }
+  to {
+    clip-path: inset(0 round var(--radius-md));
+    filter: saturate(1);
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0);
+  }
+}
+
+@keyframes score-pop {
+  0% { color: var(--color-primary); transform: translate3d(0, 0.3rem, 0) scale(0.72); }
+  58% { color: var(--color-success); transform: translate3d(0, -0.1rem, 0) scale(1.22); }
+  100% { color: inherit; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes countdown-punch {
+  0% { filter: saturate(0.8); transform: translate3d(0, -0.15rem, 0) scale(0.82); }
+  62% { filter: saturate(1.25); transform: translate3d(0, 0.06rem, 0) scale(1.2); }
+  100% { filter: saturate(1); transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes scorecard-deal {
+  from {
+    clip-path: inset(0 15% 0 0 round var(--radius-md));
+    opacity: 0;
+    transform: translate3d(0.75rem, 0, 0);
+  }
+  to {
+    clip-path: inset(0 round var(--radius-md));
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes winner-crown {
+  0% { filter: saturate(0.6); opacity: 0; transform: rotate(-18deg) scale(0.45); }
+  65% { filter: saturate(1.25); opacity: 1; transform: rotate(6deg) scale(1.12); }
+  100% { filter: saturate(1); opacity: 1; transform: rotate(0) scale(1); }
+}
+
+@keyframes winning-score-reveal {
+  from { clip-path: inset(0 100% 0 0); filter: saturate(0.7); }
+  to { clip-path: inset(0); filter: saturate(1); }
+}
+
+@keyframes feedback-icon-pop {
+  0% { transform: rotate(-14deg) scale(0.55); }
+  62% { transform: rotate(5deg) scale(1.18); }
+  100% { transform: rotate(0) scale(1); }
+}
+
+@media (max-width: 767px) {
+  .sound-toggle.icon-button[data-tooltip]::after {
+    display: none;
+  }
+
+  .app-shell:not(.app-shell--setup) > .page-shell {
+    padding-block-start: calc(var(--space-8) + var(--control-sm));
+  }
+
+  .app-shell--setup .page-heading__row > div {
+    padding-inline-end: calc(var(--control-sm) + var(--space-2));
+  }
+
+  .game-page,
+  .phone-page,
+  .phone-summary-page {
+    padding-block-start: calc(var(--space-2) + var(--control-sm));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabletop-preview,
+  .prompt-slip,
+  .home-sketch path,
+  .avatar-stage__avatar,
+  .avatar-choice-tray,
+  :is(
+    .icon-button,
+    .tool-choice,
+    .segmented button,
+    .mode-card,
+    .theme-card,
+    .word-choice-list button,
+    .swatch
+  ).is-selected,
+  :is(.mode-card, .theme-card, .word-choice-list button).is-selected .icon,
+  .setup-steps li.is-current > span,
+  .phone-phase-progress li.is-current > span,
+  .dialog-layer,
+  .word-select-layer,
+  .sheet-scrim,
+  .dialog,
+  .word-select-dialog,
+  .sheet,
+  .chat-message,
+  .chat-event,
+  .phone-submitted-state,
+  .story-guest-waiting,
+  .timer--warning,
+  .timer--urgent,
+  .story-entry,
+  .game-moment,
+  .game-moment__icon,
+  .game-moment__burst i,
+  .player-list .player-row,
+  .player-row__score,
+  .timer--urgent > .numeric,
+  .leaderboard > li,
+  .leaderboard__delta,
+  .leaderboard__score,
+  .winner-mark,
+  .winner-score,
+  .guesser-action-row .banner--success .icon,
+  .guesser-action-row .banner--warning .icon {
+    animation: none !important;
+  }
+
+  .game-moment__burst {
+    display: none;
+  }
+
+  .button > .icon,
+  .icon-button > .icon,
+  .tool-choice > .icon,
+  .avatar-layer-tab > .icon:last-child,
+  .avatar-layer-tab__icon,
+  .setup-steps li,
+  .phone-phase-progress li,
+  .setup-steps li > span,
+  .phone-phase-progress li > span {
+    transition: none !important;
+  }
+
+  .sound-toggle,
+  .player-row,
+  .player-row .avatar {
+    transition: none !important;
+  }
+}
