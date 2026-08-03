@@ -36,6 +36,8 @@ import {
   Undo2,
   User,
   Users,
+  Volume2,
+  VolumeX,
   Wifi,
   WifiOff,
   X,
@@ -43,7 +45,8 @@ import {
 } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
-  type HTMLAttributes,
+  type ComponentPropsWithoutRef,
+  type ElementType,
   type InputHTMLAttributes,
   type PropsWithChildren,
   type ReactNode,
@@ -90,6 +93,8 @@ const ICONS = {
   undo: Undo2,
   user: User,
   users: Users,
+  volume: Volume2,
+  volumeOff: VolumeX,
   wifi: Wifi,
   wifiOff: WifiOff,
   x: X,
@@ -177,15 +182,26 @@ export function IconButton({
   );
 }
 
-export function Panel({
+type PanelProps<Tag extends ElementType> = {
+  as?: Tag;
+  children?: ReactNode;
+  className?: string;
+} & Omit<
+  ComponentPropsWithoutRef<Tag>,
+  "as" | "children" | "className"
+>;
+
+export function Panel<Tag extends ElementType = "section">({
+  as,
   children,
   className = "",
   ...props
-}: PropsWithChildren<HTMLAttributes<HTMLElement>>) {
+}: PanelProps<Tag>) {
+  const Component = as ?? "section";
   return (
-    <section className={`panel ${className}`} {...props}>
+    <Component className={`panel ${className}`} {...props}>
       {children}
-    </section>
+    </Component>
   );
 }
 
@@ -204,7 +220,7 @@ export function PageHeader({
 }) {
   return (
     <header className="page-heading">
-      {kicker ? <p className="page-kicker">{kicker}</p> : null}
+      {kicker ? <p className="sr-only">{kicker}</p> : null}
       <div className="split page-heading__row">
         <div>
           <h1 id={id}>{title}</h1>
@@ -224,12 +240,14 @@ export function Field({
   help,
   error,
   className = "",
+  inputClassName = "",
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & {
   id: string;
   label: string;
   help?: string;
   error?: string;
+  inputClassName?: string;
 }) {
   const descriptionId = `${id}-description`;
   const message = error ?? help;
@@ -240,6 +258,7 @@ export function Field({
       <label htmlFor={id}>{label}</label>
       <input
         id={id}
+        className={inputClassName}
         aria-invalid={Boolean(error)}
         aria-describedby={message ? descriptionId : undefined}
         {...props}
@@ -344,22 +363,21 @@ export function Avatar({
       aria-label={`${name || "Guest"} avatar`}
     >
       <rect
+        data-avatar-part="background"
         x="2"
         y="2"
         width="84"
         height="84"
-        rx="24"
+        rx="8"
         fill={config.backgroundColor}
         stroke="var(--color-ink)"
-        strokeWidth="3"
+        strokeWidth="1.25"
       />
-      <circle
-        cx="44"
-        cy="46"
-        r="27"
+      <path
+        d="M44 17c16 0 26 11 25 29-1 19-10 30-25 30S20 65 19 46c-1-18 9-29 25-29Z"
         fill={skin}
         stroke="var(--color-ink)"
-        strokeWidth="2.5"
+        strokeWidth="1.5"
       />
       {config.hairStyle !== "none" ? (
         <path
@@ -387,10 +405,12 @@ export function Avatar({
           </>
         ) : (
           <>
-            <circle cx="34" cy="42" r={config.eyes === "round" ? 4 : 3} />
-            <circle cx="54" cy="42" r={config.eyes === "round" ? 4 : 3} />
+            <path d="M29 42c3-3 7-3 10 0-3 2.5-7 2.5-10 0Zm20 0c3-3 7-3 10 0-3 2.5-7 2.5-10 0Z" fill="none" strokeWidth="1.5" />
+            <circle cx="34" cy="42" r={config.eyes === "round" ? 1.7 : 1.25} stroke="none" />
+            <circle cx="54" cy="42" r={config.eyes === "round" ? 1.7 : 1.25} stroke="none" />
           </>
         )}
+        <path d="m44 44-2 7 4 1" fill="none" strokeWidth="1.35" />
         {config.mouth === "neutral" ? (
           <path d="M39 56h10" />
         ) : config.mouth === "open" ? (
@@ -410,7 +430,7 @@ export function Avatar({
             />
           </>
         ) : (
-          <path d="M37 54c4 6 11 6 15 0" fill="none" />
+          <path d="M38 54c4 3 8 3 12 0" fill="none" />
         )}
       </g>
       {config.eyes === "glasses" ? (
@@ -437,12 +457,19 @@ export function Avatar({
         />
       ) : null}
       {config.accessory === "headphones" ? (
-        <path
-          d="M17 47V35c0-18 12-27 27-27s27 9 27 27v12M17 42h8v18h-8Zm46 0h8v18h-8Z"
-          fill="var(--color-primary)"
-          stroke="var(--color-ink)"
-          strokeWidth="3"
-        />
+        <g stroke="var(--color-ink)" strokeWidth="3">
+          <path
+            data-avatar-part="headphone-band"
+            d="M17 47V35c0-18 12-27 27-27s27 9 27 27v12"
+            fill="none"
+            strokeLinecap="round"
+          />
+          <path
+            data-avatar-part="headphone-earcups"
+            d="M17 42h8v18h-8Zm46 0h8v18h-8Z"
+            fill="var(--color-primary)"
+          />
+        </g>
       ) : null}
       {config.accessory === "bow" ? (
         <path
@@ -454,7 +481,8 @@ export function Avatar({
       ) : null}
       {config.accessory === "party-hat" ? (
         <path
-          d="M34 19 48-4l12 26Z"
+          data-avatar-part="party-hat"
+          d="M34 21 48 2l12 22Z"
           fill="var(--color-highlight)"
           stroke="var(--color-ink)"
           strokeWidth="2"
@@ -515,22 +543,51 @@ export function Banner({
   );
 }
 
+export type ActiveDrawerStatus = "Choosing" | "Drawing" | "Reconnecting";
+
 export function PlayerRow({
   player,
   rank,
   selfId,
   showKick,
   onKick,
+  activeDrawerId,
+  activeDrawerStatus,
+  showScore = true,
 }: {
   player: PlayerPublic;
   rank?: number;
   selfId: string;
   showKick?: boolean;
   onKick?: () => void;
+  activeDrawerId?: string | null;
+  activeDrawerStatus?: ActiveDrawerStatus;
+  showScore?: boolean;
 }) {
   const isSelf = player.id === selfId;
+  const isActiveDrawer = player.id === activeDrawerId;
+  const isRanked = rank !== undefined;
+  const hasKickAction = Boolean(showKick && !player.isHost && !isSelf);
+  const activeDrawerIcon: IconName =
+    activeDrawerStatus === "Choosing"
+      ? "lightbulb"
+      : activeDrawerStatus === "Reconnecting"
+        ? "wifiOff"
+        : "pencil";
   return (
-    <li className={`player-row ${isSelf ? "player-row--you" : ""}`}>
+    <li
+      className={[
+        "player-row",
+        isSelf ? "player-row--you" : "",
+        isActiveDrawer ? "player-row--drawer" : "",
+        isRanked ? "player-row--ranked" : "",
+        hasKickAction ? "player-row--kickable" : "",
+        !player.isConnected ? "player-row--disconnected" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      aria-current={isActiveDrawer ? true : undefined}
+    >
       {rank ? <span className="player-row__rank numeric">{rank}</span> : null}
       <Avatar name={player.name} config={player.avatar} size={44} />
       <div className="player-row__identity">
@@ -540,30 +597,47 @@ export function PlayerRow({
         </strong>
         <span className="player-row__meta">
           {player.isHost ? (
-            <>
-              <Icon name="crown" size={14} /> Host
-            </>
-          ) : player.isDrawing ? (
-            <>
-              <Icon name="pencil" size={14} /> Drawing
-            </>
-          ) : (
-            <>
+            <span className="player-row__role">
+              <Icon name="crown" size={14} />
+              <span>Host</span>
+            </span>
+          ) : player.isDrawing && !isActiveDrawer ? (
+            <span className="player-row__role">
+              <Icon name="pencil" size={14} />
+              <span>Drawing</span>
+            </span>
+          ) : !isActiveDrawer ? (
+            <span className="player-row__role">
               <Icon
                 name={player.isConnected ? "wifi" : "wifiOff"}
                 size={14}
               />
-              {player.hasGuessed
-                ? "Guessed"
-                : player.isConnected
-                  ? "Ready"
-                  : "Reconnecting"}
-            </>
-          )}
+              <span>
+                {player.hasGuessed
+                  ? "Guessed"
+                  : player.isConnected
+                    ? "Ready"
+                    : "Reconnecting"}
+              </span>
+            </span>
+          ) : null}
+          {isActiveDrawer && activeDrawerStatus ? (
+            <span className="player-row__drawer-badge">
+              <Icon name={activeDrawerIcon} size={14} />
+              <span>{activeDrawerStatus}</span>
+            </span>
+          ) : null}
         </span>
       </div>
-      <strong className="player-row__score numeric">{player.score}</strong>
-      {showKick && !player.isHost && !isSelf ? (
+      {showScore ? (
+        <strong
+          key={player.score}
+          className="player-row__score numeric"
+        >
+          {player.score}
+        </strong>
+      ) : null}
+      {hasKickAction ? (
         <IconButton
           icon="logOut"
           label={`Remove ${player.name} from room`}
@@ -581,6 +655,9 @@ export function PlayersPanel({
   onKick,
   ranked,
   title = "Players",
+  activeDrawerId,
+  activeDrawerStatus,
+  showScores = true,
 }: {
   players: readonly PlayerPublic[];
   selfId: string;
@@ -588,6 +665,9 @@ export function PlayersPanel({
   onKick?: (playerId: string) => void;
   ranked?: boolean;
   title?: string;
+  activeDrawerId?: string | null;
+  activeDrawerStatus?: ActiveDrawerStatus;
+  showScores?: boolean;
 }) {
   const headingId = useId();
   const sorted = ranked
@@ -608,6 +688,11 @@ export function PlayersPanel({
             onKick={() => onKick?.(player.id)}
             {...(ranked ? { rank: index + 1 } : {})}
             {...(showKick === undefined ? {} : { showKick })}
+            {...(activeDrawerId === undefined ? {} : { activeDrawerId })}
+            {...(activeDrawerStatus === undefined
+              ? {}
+              : { activeDrawerStatus })}
+            showScore={showScores}
           />
         ))}
       </ol>

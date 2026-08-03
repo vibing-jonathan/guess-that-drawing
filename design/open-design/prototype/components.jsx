@@ -245,22 +245,34 @@ function RoomCode({ code = "SKETCH", onCopy, copied = false }) {
 }
 
 function PlayerRow({ player, rank, showKick = false, onKick }) {
-  const { name, score, delta, status, isHost, isYou, isDrawer, avatar = {} } = player;
+  const { name, score, delta, status, isHost, isYou, isDrawer, drawerStatus = "Drawing", avatar = {} } = player;
+  const hasKickAction = showKick && !isHost && !isYou;
+  const rowClasses = [
+    "player-row",
+    isYou ? "player-row--you" : "",
+    isDrawer ? "player-row--drawer" : "",
+    rank !== undefined ? "player-row--ranked" : "",
+    hasKickAction ? "player-row--kickable" : ""
+  ].filter(Boolean).join(" ");
   return (
-    <li className={`player-row ${isYou ? "player-row--you" : ""}`} data-od-id={`player-${name.toLowerCase().replace(/\W+/g, "-")}`}>
+    <li className={rowClasses} data-od-id={`player-${name.toLowerCase().replace(/\W+/g, "-")}`}>
       {rank ? <span className="player-row__rank numeric">{rank}</span> : null}
       <Avatar name={name} size={44} {...avatar} />
       <div className="player-row__identity">
         <strong>{name}{isYou ? " · You" : ""}</strong>
         <span className="player-row__meta">
-          {isHost ? <><Icon name="crown" size={14} /> Host</> : null}
-          {isDrawer ? <><Icon name="pencil" size={14} /> Drawing</> : null}
-          {!isHost && !isDrawer ? <><Icon name={status === "reconnecting" ? "wifiOff" : "wifi"} size={14} /> {status === "reconnecting" ? "Reconnecting" : status || "Ready"}</> : null}
+          {isHost ? <span className="player-row__role"><Icon name="crown" size={14} /><span>Host</span></span> : null}
+          {isDrawer ? <span className="player-row__turn-badge"><Icon name="pencil" size={14} /><span>{drawerStatus}</span></span> : null}
+          {!isHost && !isDrawer ? <span className="player-row__role"><Icon name={status === "reconnecting" ? "wifiOff" : "wifi"} size={14} /><span>{status === "reconnecting" ? "Reconnecting" : status || "Ready"}</span></span> : null}
         </span>
       </div>
-      {delta ? <span className="player-row__delta numeric">+{delta}</span> : null}
+      {delta ? (
+        <span className={`player-row__delta numeric ${delta < 0 ? "is-negative" : ""}`}>
+          {delta > 0 ? "+" : "−"}{Math.abs(delta)}
+        </span>
+      ) : null}
       {typeof score === "number" ? <strong className="player-row__score numeric">{score}</strong> : null}
-      {showKick && !isHost && !isYou ? (
+      {hasKickAction ? (
         <IconButton icon="logOut" label={`Remove ${name} from room`} tooltip={`Kick ${name}`} onClick={() => onKick?.(name)} />
       ) : null}
     </li>
@@ -428,6 +440,8 @@ function DrawingToolbar({ disabled = false, onClear }) {
 function ChatPanel({
   mode = "guesser",
   guessed = false,
+  penalty = false,
+  selecting = false,
   titleId = "chat-title",
   inputId = "guess-input",
   odId = "chat-panel"
@@ -458,9 +472,22 @@ function ChatPanel({
         <div className="chat-message"><strong>Noah</strong><span>tower by the sea</span><time>8:42</time></div>
         <div className="chat-event"><Icon name="checkCircle" size={16} /><span><strong>Noah</strong> guessed the word.</span></div>
         <div className="chat-message"><strong>Amara</strong><span>coast guard?</span><time>8:43</time></div>
+        {penalty ? (
+          <div className="chat-message chat-message--own" data-od-id="pro-public-incorrect-guess">
+            <strong>Priya</strong><span>Beacon</span><time>now</time>
+          </div>
+        ) : null}
         {sent ? <div className="chat-message chat-message--own"><strong>You</strong><span>Your mock guess was sent.</span><time>now</time></div> : null}
       </div>
-      {mode === "drawer" ? (
+      {selecting ? (
+        <div className="composer composer--disabled">
+          <Icon name="clock" size={20} />
+          <div>
+            <strong>{mode === "drawer" ? "Choose a word to start the turn" : "Guesses open when drawing begins"}</strong>
+            <span>{mode === "drawer" ? "Your choices stay private." : "The canvas is ready while Maya chooses."}</span>
+          </div>
+        </div>
+      ) : mode === "drawer" ? (
         <div className="composer composer--disabled">
           <Icon name="lock" size={20} />
           <div><strong>Chat is paused while you draw</strong><span>Keep the word secret until the turn ends.</span></div>
@@ -531,7 +558,7 @@ function ConfirmDialog({ open, title, description, confirmLabel, tone = "danger"
   );
 }
 
-function MobileSupport({ players, mode, guessed }) {
+function MobileSupport({ players, mode, guessed, penalty = false, selecting = false }) {
   const [sheet, setSheet] = useState(null);
   const closeRef = useRef(null);
   const sheetRef = useRef(null);
@@ -579,8 +606,10 @@ function MobileSupport({ players, mode, guessed }) {
               <PlayersPanel players={players} ranked titleId="mobile-players-title" odId="mobile-players-panel" />
             ) : (
               <ChatPanel
-                mode={mode}
-                guessed={guessed}
+                 mode={mode}
+                 guessed={guessed}
+                 penalty={penalty}
+                 selecting={selecting}
                 titleId="mobile-chat-title"
                 inputId="mobile-sheet-guess-input"
                 odId="mobile-chat-panel"
@@ -601,7 +630,11 @@ function Leaderboard({ players, final = false }) {
           <span className="leaderboard__place numeric">{index + 1}</span>
           <Avatar name={player.name} size={48} {...player.avatar} />
           <div><strong>{player.name}{player.isYou ? " · You" : ""}</strong>{index === 0 && final ? <span><Icon name="trophy" size={15} /> Winner</span> : <span>{player.status || "Finished"}</span>}</div>
-          {player.delta ? <span className="leaderboard__delta numeric">+{player.delta}</span> : null}
+          {player.delta ? (
+            <span className={`leaderboard__delta numeric ${player.delta < 0 ? "is-negative" : ""}`}>
+              {player.delta > 0 ? "+" : "−"}{Math.abs(player.delta)}
+            </span>
+          ) : null}
           <strong className="leaderboard__score numeric">{player.score}</strong>
         </li>
       ))}

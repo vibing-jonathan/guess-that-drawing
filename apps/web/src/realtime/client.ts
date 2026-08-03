@@ -12,8 +12,14 @@ import {
 
 export type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
+const developmentServerUrl =
+  import.meta.env.DEV && typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}:3000`
+    : undefined;
+
 export function createGameSocket(
-  url: string | undefined = import.meta.env.VITE_SERVER_URL,
+  url: string | undefined =
+    import.meta.env.VITE_SERVER_URL || developmentServerUrl,
   options: Partial<ManagerOptions & SocketOptions> = {},
 ): GameSocket {
   return io(url, {

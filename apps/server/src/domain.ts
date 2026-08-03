@@ -2,15 +2,14 @@ import type {
   AvatarConfig,
   DrawingEnvelope,
   DrawingOp,
+  PhoneActivePhase,
+  PhoneDrawingEnvelope,
+  RoomPhase,
   RoomSettings,
+  ScoreChange,
 } from "@gtd/contracts";
 
-export type RoomPhase =
-  | "lobby"
-  | "selecting"
-  | "drawing"
-  | "turn-results"
-  | "final-results";
+export type { RoomPhase };
 
 export interface CustomThemeInput {
   id: string;
@@ -61,6 +60,7 @@ export interface ServerRound {
   drawerPauseUsed: boolean;
   correctGuesses: CorrectGuessRecord[];
   drawerScoreAwarded: number;
+  scoreChanges: ScoreChange[];
   drawingLog: DrawingEnvelope[];
   drawingOperationIds: Record<string, true>;
   drawingPointCount: number;
@@ -69,6 +69,77 @@ export interface ServerRound {
   strokeChunks: Record<string, number>;
   undoStack: string[];
   redoStack: string[];
+}
+
+export interface FrozenPhoneParticipant {
+  playerId: string;
+  playerName: string;
+  avatar: AvatarConfig;
+  joinedAt: number;
+  joinOrder: number;
+}
+
+export interface ServerPhoneDrawingState {
+  envelopes: PhoneDrawingEnvelope[];
+  operationIds: Record<string, true>;
+  pointCount: number;
+  byteCount: number;
+  nextServerSequence: number;
+  strokeChunks: Record<string, number>;
+  undoStack: string[];
+  redoStack: string[];
+}
+
+interface ServerPhoneEntryBase {
+  id: string;
+  phase: PhoneActivePhase;
+  contributorPlayerId: string;
+  status: "working" | "submitted" | "skipped";
+  submittedAt: number | null;
+  skippedReason:
+    | "timeout"
+    | "left"
+    | "kicked"
+    | "disconnected"
+    | null;
+}
+
+export interface ServerPhoneTextEntry extends ServerPhoneEntryBase {
+  phase: "phone-writing" | "phone-guessing";
+  kind: "text";
+  text: string | null;
+}
+
+export interface ServerPhoneDrawingEntry extends ServerPhoneEntryBase {
+  phase: "phone-drawing-1" | "phone-drawing-2";
+  kind: "drawing";
+  drawing: ServerPhoneDrawingState;
+}
+
+export type ServerPhoneEntry =
+  | ServerPhoneTextEntry
+  | ServerPhoneDrawingEntry;
+
+export interface ServerPhoneStoryline {
+  id: string;
+  ownerPlayerId: string;
+  entries: ServerPhoneEntry[];
+}
+
+export interface ServerPhoneMatch {
+  matchId: string;
+  participantOrder: FrozenPhoneParticipant[];
+  assignmentOffsets: [number, number, number];
+  phaseIndex: 0 | 1 | 2 | 3;
+  phaseStartedAt: number;
+  deadlineAt: number | null;
+  storylines: ServerPhoneStoryline[];
+  inactiveReasons: Record<
+    string,
+    "left" | "kicked" | "disconnected"
+  >;
+  summaryCursor: { storyIndex: number; entryIndex: number } | null;
+  completedAt: number | null;
 }
 
 export interface CachedCommandResult {
@@ -94,6 +165,7 @@ export interface AuthoritativeRoom {
   turnIndex: number;
   currentCycle: number;
   round: ServerRound | null;
+  phoneMatch: ServerPhoneMatch | null;
   chat: import("@gtd/contracts").ChatMessage[];
   recentCommands: Record<string, CachedCommandResult[]>;
 }
@@ -155,4 +227,12 @@ export interface DrawingMutationCommand {
   idempotencyId: string;
   expectedRevision?: number;
   turnId: string;
+}
+
+export interface PhoneDrawingBatchCommand {
+  idempotencyId: string;
+  assignmentId: string;
+  strokeId: string;
+  chunkId: number;
+  operations: DrawingOp[];
 }

@@ -185,10 +185,33 @@ function ProfileScreen({ onNavigate }) {
   );
 }
 
-function SetupSteps({ active = 2 }) {
-  const steps = ["Profile", "Room settings", "Theme", "Review"];
+const GAME_MODES = {
+  classic: {
+    name: "Classic",
+    icon: "brush",
+    description: "Take turns drawing while everyone else races to guess.",
+    note: "Scores reward quick correct guesses."
+  },
+  pro: {
+    name: "Pro",
+    icon: "trophy",
+    description: "Classic play with a cost for throwing out incorrect guesses.",
+    note: "Each incorrect guess subtracts 25 points."
+  },
+  phone: {
+    name: "Phone",
+    icon: "link",
+    description: "Everyone writes, draws, and guesses at the same time in private chains.",
+    note: "Four links · no theme, chat, or scores."
+  }
+};
+
+function SetupSteps({ active = 2, mode = "classic" }) {
+  const steps = mode === "phone"
+    ? ["Profile", "Mode & settings", "Review"]
+    : ["Profile", "Mode & settings", "Theme", "Review"];
   return (
-    <ol className="setup-steps" aria-label={`Step ${active} of 4`}>
+    <ol className="setup-steps" aria-label={`Step ${active} of ${steps.length}`}>
       {steps.map((step, index) => (
         <li key={step} className={index + 1 === active ? "is-current" : index + 1 < active ? "is-complete" : ""}>
           <span className="numeric">{index + 1}</span>
@@ -200,49 +223,141 @@ function SetupSteps({ active = 2 }) {
   );
 }
 
-function CreateRoomScreen({ onNavigate }) {
+function ModeCards({ mode, onChange }) {
+  const options = Object.entries(GAME_MODES);
+  const onKeyDown = (event) => {
+    if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const controls = [...event.currentTarget.querySelectorAll("button")];
+    const currentIndex = Math.max(0, controls.indexOf(document.activeElement));
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? controls.length - 1
+        : (currentIndex + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + controls.length) % controls.length;
+    event.preventDefault();
+    controls[nextIndex].focus();
+    controls[nextIndex].click();
+  };
+  return (
+    <fieldset className="mode-picker">
+      <legend>Game mode</legend>
+      <div className="mode-grid" role="radiogroup" aria-label="Game mode" onKeyDown={onKeyDown}>
+        {options.map(([value, option], index) => (
+          <button
+            key={value}
+            type="button"
+            className={`mode-card ${mode === value ? "is-selected" : ""}`}
+            role="radio"
+            aria-checked={mode === value}
+            tabIndex={mode === value || (!mode && index === 0) ? 0 : -1}
+            onClick={() => onChange(value)}
+            data-od-id={`mode-card-${value}`}
+          >
+            <span className="mode-card__icon"><Icon name={option.icon} size={24} /></span>
+            <span className="mode-card__copy">
+              <strong>{option.name}</strong>
+              <span>{option.description}</span>
+              <small>{option.note}</small>
+            </span>
+            {mode === value ? <span className="mode-card__selected"><Icon name="check" size={16} /> Selected</span> : null}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function CreateRoomScreen({ onNavigate, initialMode = "classic" }) {
+  const [mode, setMode] = useState(initialMode);
   const [cap, setCap] = useState("8");
   const [cycles, setCycles] = useState("3");
   const [time, setTime] = useState("90");
-  const [theme, setTheme] = useState("general");
+  const [wordTime, setWordTime] = useState("15");
+  const [textTime, setTextTime] = useState("60");
+  const [drawingTime, setDrawingTime] = useState("120");
+  const phoneMode = mode === "phone";
+  const proMode = mode === "pro";
+  const submit = (event) => {
+    event.preventDefault();
+    onNavigate(phoneMode ? "setup-review-phone" : `themes-${mode}`);
+  };
   return (
-    <main id="main-content" className="page-shell create-screen" aria-labelledby="create-title" data-od-id="create-room-screen">
-      <PageHeader kicker="Step 2 of 4" title="Set the pace for the room" description="Choose a relaxed default now. The host can adjust these settings in the lobby." id="create-title" />
+    <main id="main-content" className={`page-shell create-screen create-screen--${mode}`} aria-labelledby="create-title" data-od-id={`create-room-${mode}-screen`}>
+      <PageHeader
+        kicker={`Step 2 of ${phoneMode ? 3 : 4}`}
+        title="Choose how the room plays"
+        description="Pick a mode, then set the room rules. The host can adjust these settings in the lobby."
+        id="create-title"
+      />
       <div className="setup-layout">
-        <SetupSteps active={2} />
-        <Panel className="settings-form" as="form" onSubmit={(event) => { event.preventDefault(); onNavigate("themes"); }}>
-          <div className="settings-grid">
-            <SelectField id="player-cap" label="Player cap" value={cap} onChange={(event) => setCap(event.target.value)} help="Between 2 and 12 players.">
-              {[2, 4, 6, 8, 10, 12].map((value) => <option key={value} value={value}>{value} players</option>)}
-            </SelectField>
-            <SelectField id="drawing-cycles" label="Drawing cycles" value={cycles} onChange={(event) => setCycles(event.target.value)}>
-              {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} {value === 1 ? "cycle" : "cycles"}</option>)}
-            </SelectField>
-            <SelectField id="turn-time" label="Turn time" value={time} onChange={(event) => setTime(event.target.value)}>
-              {[45, 60, 90, 120, 180].map((value) => <option key={value} value={value}>{value} seconds</option>)}
-            </SelectField>
-            <SelectField id="starting-theme" label="Starting theme" value={theme} onChange={(event) => setTheme(event.target.value)}>
-              {BUNDLED_THEMES.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </SelectField>
-          </div>
-          <fieldset className="room-privacy">
-            <legend>Who can join?</legend>
-            <label><input type="radio" name="privacy" defaultChecked /> Anyone with the room code</label>
-            <label><input type="radio" name="privacy" /> Host approval required</label>
-          </fieldset>
+        <SetupSteps active={2} mode={mode} />
+        <Panel className="settings-form" as="form" onSubmit={submit}>
+          <ModeCards mode={mode} onChange={setMode} />
+          {phoneMode ? (
+            <div className="settings-grid">
+              <SelectField id="phone-player-cap" label="Player cap" value={cap} onChange={(event) => setCap(event.target.value)} help="Phone Mode needs at least 4 players.">
+                {[4, 6, 8, 10, 12].map((value) => <option key={value} value={value}>{value} players</option>)}
+              </SelectField>
+              <SelectField id="text-timer" label="Text timer" value={textTime} onChange={(event) => setTextTime(event.target.value)} help="Authoritative deadline for phases 1 and 3.">
+                {[30, 45, 60, 90, 120].map((value) => <option key={value} value={value}>{value} seconds</option>)}
+              </SelectField>
+              <SelectField id="drawing-timer" label="Drawing timer" value={drawingTime} onChange={(event) => setDrawingTime(event.target.value)} help="Authoritative deadline for phases 2 and 4.">
+                {[60, 90, 120, 150, 180].map((value) => <option key={value} value={value}>{value} seconds</option>)}
+              </SelectField>
+              <div className="fixed-setting"><span>Story chain</span><strong>4 links</strong><small>Sentence → drawing → sentence → drawing</small></div>
+              <div className="fixed-setting"><span>Theme</span><strong>Not used</strong><small>Every starting sentence comes from a player.</small></div>
+            </div>
+          ) : (
+            <div className="settings-grid">
+              <SelectField id="player-cap" label="Player cap" value={cap} onChange={(event) => setCap(event.target.value)} help="Between 2 and 12 players.">
+                {[2, 4, 6, 8, 10, 12].map((value) => <option key={value} value={value}>{value} players</option>)}
+              </SelectField>
+              <SelectField id="drawing-cycles" label="Drawing cycles" value={cycles} onChange={(event) => setCycles(event.target.value)}>
+                {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} {value === 1 ? "cycle" : "cycles"}</option>)}
+              </SelectField>
+              <SelectField id="turn-time" label="Turn time" value={time} onChange={(event) => setTime(event.target.value)}>
+                {[45, 60, 90, 120, 180].map((value) => <option key={value} value={value}>{value} seconds</option>)}
+              </SelectField>
+              <SelectField id="word-selection-time" label="Word selection time" value={wordTime} onChange={(event) => setWordTime(event.target.value)}>
+                {[10, 15, 20, 30].map((value) => <option key={value} value={value}>{value} seconds</option>)}
+              </SelectField>
+            </div>
+          )}
+          {proMode ? (
+            <Banner tone="warning" icon="circleAlert" title="Incorrect guesses cost 25 points">
+              The −25 score change is immediate, signed, and visible only after a submitted guess is judged incorrect.
+            </Banner>
+          ) : phoneMode ? (
+            <Banner tone="info" icon="lock" title="Private until the story summary">
+              Players act simultaneously. Assigned prompts hide their author, and Phone Mode has no room chat or scores.
+            </Banner>
+          ) : null}
           <Banner tone="info" icon="lock" title="Private by default">Rooms are not listed publicly. Only people with the code can enter.</Banner>
           <div className="form-actions">
             <Button variant="secondary" icon="arrowLeft" onClick={() => onNavigate("profile")}>Back</Button>
-            <Button type="submit" icon="arrowRight">Choose a theme</Button>
+            <Button type="submit" icon="arrowRight">{phoneMode ? "Review Phone room" : "Choose a theme"}</Button>
           </div>
         </Panel>
         <aside className="setup-summary" aria-label="Room summary">
           <span className="eyebrow">Current setup</span>
           <dl>
+            <div><dt>Mode</dt><dd>{GAME_MODES[mode].name}</dd></div>
             <div><dt>Players</dt><dd>Up to {cap}</dd></div>
-            <div><dt>Cycles</dt><dd>{cycles}</dd></div>
-            <div><dt>Turn</dt><dd>{time} sec</dd></div>
-            <div><dt>Theme</dt><dd>{BUNDLED_THEMES.find((item) => item.id === theme)?.name}</dd></div>
+            {phoneMode ? (
+              <>
+                <div><dt>Phases</dt><dd>4 simultaneous</dd></div>
+                <div><dt>Text timer</dt><dd>{textTime} sec</dd></div>
+                <div><dt>Drawing timer</dt><dd>{drawingTime} sec</dd></div>
+                <div><dt>Theme</dt><dd>Skipped</dd></div>
+              </>
+            ) : (
+              <>
+                <div><dt>Cycles</dt><dd>{cycles}</dd></div>
+                <div><dt>Turn</dt><dd>{time} sec</dd></div>
+                <div><dt>Word selection</dt><dd>{wordTime} sec</dd></div>
+                {proMode ? <div><dt>Wrong guess</dt><dd>−25 points</dd></div> : null}
+              </>
+            )}
           </dl>
         </aside>
       </div>
@@ -319,16 +434,16 @@ function JoinScreen({ onNavigate, errorType }) {
   );
 }
 
-function ThemeLibraryScreen({ onNavigate }) {
+function ThemeLibraryScreen({ onNavigate, mode = "classic" }) {
   const [selected, setSelected] = useState("general");
   return (
-    <main id="main-content" className="page-shell page-shell--wide theme-screen" aria-labelledby="themes-title" data-od-id="theme-library-screen">
+    <main id="main-content" className="page-shell page-shell--wide theme-screen" aria-labelledby="themes-title" data-od-id={`theme-library-${mode}-screen`}>
       <PageHeader
         kicker="Step 3 of 4"
-        title="Pick the room’s prompt deck"
-        description="Bundled themes are ready to play. Custom themes stay private to your room."
+        title={`Pick the ${GAME_MODES[mode].name} prompt deck`}
+        description="Bundled themes are ready to play. Custom themes stay private to your room. Phone Mode skips this step."
         id="themes-title"
-        actions={<Button variant="secondary" icon="plus" onClick={() => onNavigate("theme-editor")}>New custom theme</Button>}
+        actions={<Button variant="secondary" icon="plus" onClick={() => onNavigate(`theme-editor-${mode}`)}>New custom theme</Button>}
       />
       <div className="theme-grid" role="radiogroup" aria-label="Bundled themes">
         {BUNDLED_THEMES.map((theme) => (
@@ -353,14 +468,76 @@ function ThemeLibraryScreen({ onNavigate }) {
         ))}
       </div>
       <div className="form-actions">
-        <Button variant="secondary" icon="arrowLeft" onClick={() => onNavigate("create")}>Back</Button>
-        <Button icon="arrowRight" onClick={() => onNavigate("lobby-host")}>Create room with {BUNDLED_THEMES.find((theme) => theme.id === selected)?.name}</Button>
+        <Button variant="secondary" icon="arrowLeft" onClick={() => onNavigate(`setup-${mode}`)}>Back</Button>
+        <Button icon="arrowRight" onClick={() => onNavigate(`setup-review-${mode}`)}>Review with {BUNDLED_THEMES.find((theme) => theme.id === selected)?.name}</Button>
       </div>
     </main>
   );
 }
 
-function ThemeEditorScreen({ onNavigate }) {
+function ReviewRoomScreen({ onNavigate, mode = "classic" }) {
+  const phoneMode = mode === "phone";
+  const proMode = mode === "pro";
+  const lobbyTarget = phoneMode ? "lobby-phone-host" : proMode ? "lobby-pro-host" : "lobby-host";
+  return (
+    <main id="main-content" className="page-shell review-screen" aria-labelledby="review-title" data-od-id={`setup-review-${mode}-screen`}>
+      <PageHeader
+        kicker={`Step ${phoneMode ? 3 : 4} of ${phoneMode ? 3 : 4}`}
+        title={`Review the ${GAME_MODES[mode].name} room`}
+        description="These are the rules players will see before the host starts."
+        id="review-title"
+      />
+      <div className="setup-layout">
+        <SetupSteps active={phoneMode ? 3 : 4} mode={mode} />
+        <Panel className="review-panel" aria-labelledby="review-settings-title">
+          <div className="split panel__heading">
+            <h2 id="review-settings-title">Sunday sketch club</h2>
+            <StatusBadge tone="primary" icon={GAME_MODES[mode].icon}>{GAME_MODES[mode].name}</StatusBadge>
+          </div>
+          <p>{GAME_MODES[mode].description}</p>
+          <dl className="settings-summary">
+            <div><dt>Players</dt><dd>{phoneMode ? "4–12" : "Up to 8"}</dd></div>
+            {phoneMode ? (
+              <>
+                <div><dt>Flow</dt><dd>4 simultaneous phases</dd></div>
+                <div><dt>Text timer</dt><dd>60 seconds</dd></div>
+                <div><dt>Drawing timer</dt><dd>120 seconds</dd></div>
+                <div><dt>Prompt source</dt><dd>Player sentences</dd></div>
+                <div><dt>Chat & scores</dt><dd>Off</dd></div>
+              </>
+            ) : (
+              <>
+                <div><dt>Drawing cycles</dt><dd>3</dd></div>
+                <div><dt>Turn time</dt><dd>90 seconds</dd></div>
+                <div><dt>Word selection time</dt><dd>15 seconds</dd></div>
+                <div><dt>Theme</dt><dd>General</dd></div>
+                {proMode ? <div><dt>Incorrect guess</dt><dd>−25 points</dd></div> : null}
+              </>
+            )}
+          </dl>
+          <Banner tone={proMode ? "warning" : "info"} icon={phoneMode ? "lock" : proMode ? "circleAlert" : "brush"} title={phoneMode ? "Private chain rules" : proMode ? "Penalty is active" : "Classic room"}>
+            {phoneMode
+              ? "Assigned content hides its author until the synchronized story summary."
+              : proMode
+                ? "Every judged incorrect guess shows a signed −25 score delta."
+                : "Players take turns drawing and guessing with the selected theme."}
+          </Banner>
+          <div className="form-actions">
+            <Button variant="secondary" icon="arrowLeft" onClick={() => onNavigate(phoneMode ? "setup-phone" : `themes-${mode}`)}>Back</Button>
+            <Button icon="arrowRight" onClick={() => onNavigate(lobbyTarget)}>Create {GAME_MODES[mode].name} room</Button>
+          </div>
+        </Panel>
+        <aside className="setup-summary" aria-label="Mode review">
+          <span className="eyebrow">What players see</span>
+          <p>{GAME_MODES[mode].note}</p>
+          <StatusBadge icon="lock">Private room code</StatusBadge>
+        </aside>
+      </div>
+    </main>
+  );
+}
+
+function ThemeEditorScreen({ onNavigate, mode = "classic" }) {
   const [themeName, setThemeName] = useState("Rainy-day favorites");
   const [words, setWords] = useState(INITIAL_CUSTOM_WORDS);
   const [newWord, setNewWord] = useState("");
@@ -391,8 +568,8 @@ function ThemeEditorScreen({ onNavigate }) {
     { name: "Travel stories", count: 26 }
   ];
   return (
-    <main id="main-content" className="page-shell page-shell--wide editor-screen" aria-labelledby="editor-title" data-od-id="custom-theme-editor">
-      <PageHeader kicker="Custom theme" title="Build a private prompt deck" description="Edit locally, clean duplicates, then select the theme for this room." id="editor-title" />
+    <main id="main-content" className="page-shell page-shell--wide editor-screen" aria-labelledby="editor-title" data-od-id={`custom-theme-editor-${mode}`}>
+      <PageHeader kicker={`${GAME_MODES[mode].name} · Custom theme`} title="Build a private prompt deck" description="Edit locally, clean duplicates, then select the theme for this room." id="editor-title" />
       <div className="editor-layout">
         <aside className="saved-themes" aria-labelledby="saved-themes-title">
           <div className="split"><h2 id="saved-themes-title">Saved locally</h2><StatusBadge icon="save">2 themes</StatusBadge></div>
@@ -466,7 +643,7 @@ function ThemeEditorScreen({ onNavigate }) {
               <li className={duplicateCount === 0 ? "is-valid" : ""}><Icon name={duplicateCount === 0 ? "checkCircle" : "circleAlert"} size={18} /> Duplicates removed</li>
             </ul>
             <Button icon={saved ? "check" : "save"} disabled={!valid} onClick={() => setSaved(true)}>{saved ? "Saved locally" : "Save theme"}</Button>
-            <Button variant="secondary" icon="check" disabled={!valid} onClick={() => onNavigate("lobby-host")}>Save and select</Button>
+            <Button variant="secondary" icon="check" disabled={!valid} onClick={() => onNavigate(`setup-review-${mode}`)}>Save and review</Button>
           </Panel>
         </aside>
       </div>
@@ -474,16 +651,24 @@ function ThemeEditorScreen({ onNavigate }) {
   );
 }
 
-function LobbyScreen({ onNavigate, role = "host", onAnnounce }) {
+function LobbyScreen({ onNavigate, role = "host", mode = "classic", phoneMinimum = false, onAnnounce }) {
   const isHost = role === "host";
+  const phoneMode = mode === "phone";
+  const proMode = mode === "pro";
   const [copied, setCopied] = useState(false);
-  const [players, setPlayers] = useState(() => BASE_PLAYERS.map((player) => ({
+  const [players, setPlayers] = useState(() => BASE_PLAYERS
+    .slice(0, phoneMinimum ? 3 : BASE_PLAYERS.length)
+    .map((player) => ({
     ...player,
+    score: phoneMode ? undefined : player.score,
     isYou: isHost ? player.name === "Maya" : player.name === "Priya"
   })));
   const [cap, setCap] = useState("8");
   const [cycles, setCycles] = useState("3");
   const [time, setTime] = useState("90");
+  const [wordTime, setWordTime] = useState("15");
+  const [textTime, setTextTime] = useState("60");
+  const [drawingTime, setDrawingTime] = useState("120");
   const copy = () => {
     setCopied(true);
     onAnnounce?.("Room code copied.");
@@ -494,13 +679,22 @@ function LobbyScreen({ onNavigate, role = "host", onAnnounce }) {
     onAnnounce?.(`${name} was removed from the prototype lobby.`);
   };
   return (
-    <main id="main-content" className="page-shell page-shell--wide lobby-screen" aria-labelledby="lobby-title" data-od-id={`${role}-lobby-screen`}>
+    <main id="main-content" className={`page-shell page-shell--wide lobby-screen lobby-screen--${mode}`} aria-labelledby="lobby-title" data-od-id={`${role}-${mode}-lobby-screen`}>
       <PageHeader
-        kicker={isHost ? "Host lobby" : "Guest lobby"}
+        kicker={`${GAME_MODES[mode].name} · ${isHost ? "Host lobby" : "Guest lobby"}`}
         title="Sunday sketch club"
-        description={isHost ? "Everyone is here. Check the settings, then start when the room feels ready." : "You’re in. The host will start once everyone is ready."}
+        description={phoneMinimum
+          ? "Phone Mode needs at least four players. Invite one more person to start the chain."
+          : isHost
+            ? "Everyone is here. Check the mode settings, then start when the room feels ready."
+            : "You’re in. The host will start once everyone is ready."}
         id="lobby-title"
-        actions={<StatusBadge tone="success" icon="wifi">Connected</StatusBadge>}
+        actions={(
+          <>
+            <StatusBadge tone="primary" icon={GAME_MODES[mode].icon}>{GAME_MODES[mode].name}</StatusBadge>
+            <StatusBadge tone="success" icon="wifi">Connected</StatusBadge>
+          </>
+        )}
       />
       <RoomCode code="SKETCH" copied={copied} onCopy={copy} />
       <div className="lobby-grid">
@@ -511,35 +705,83 @@ function LobbyScreen({ onNavigate, role = "host", onAnnounce }) {
             <StatusBadge icon={isHost ? "settings" : "lock"}>{isHost ? "Host controls" : "Host locked"}</StatusBadge>
           </div>
           {isHost ? (
-            <div className="settings-grid">
-              <SelectField id="lobby-cap" label="Player cap" value={cap} onChange={(event) => setCap(event.target.value)}>
-                {[2, 4, 6, 8, 10, 12].map((value) => <option key={value} value={value}>{value} players</option>)}
-              </SelectField>
-              <SelectField id="lobby-cycles" label="Drawing cycles" value={cycles} onChange={(event) => setCycles(event.target.value)}>
-                {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} cycles</option>)}
-              </SelectField>
-              <SelectField id="lobby-time" label="Turn time" value={time} onChange={(event) => setTime(event.target.value)}>
-                {[45, 60, 90, 120].map((value) => <option key={value} value={value}>{value} seconds</option>)}
-              </SelectField>
-              <SelectField id="lobby-theme" label="Theme" value="general" onChange={() => {}}>
-                {BUNDLED_THEMES.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-              </SelectField>
-            </div>
+            phoneMode ? (
+              <div className="settings-grid">
+                <SelectField id="lobby-phone-cap" label="Player cap" value={cap} onChange={(event) => setCap(event.target.value)}>
+                  {[4, 6, 8, 10, 12].map((value) => <option key={value} value={value}>{value} players</option>)}
+                </SelectField>
+                <SelectField id="lobby-text-timer" label="Text timer" value={textTime} onChange={(event) => setTextTime(event.target.value)} help="Authoritative deadline for phases 1 and 3.">
+                  {[30, 45, 60, 90, 120].map((value) => <option key={value} value={value}>{value} seconds</option>)}
+                </SelectField>
+                <SelectField id="lobby-drawing-timer" label="Drawing timer" value={drawingTime} onChange={(event) => setDrawingTime(event.target.value)} help="Authoritative deadline for phases 2 and 4.">
+                  {[60, 90, 120, 150, 180].map((value) => <option key={value} value={value}>{value} seconds</option>)}
+                </SelectField>
+                <div className="fixed-setting"><span>Story chain</span><strong>4 links</strong><small>Sentence → drawing → sentence → drawing</small></div>
+                <div className="fixed-setting"><span>Theme, chat & scores</span><strong>Off</strong><small>Content reveals only in the summary.</small></div>
+              </div>
+            ) : (
+              <div className="settings-grid">
+                <SelectField id="lobby-cap" label="Player cap" value={cap} onChange={(event) => setCap(event.target.value)}>
+                  {[2, 4, 6, 8, 10, 12].map((value) => <option key={value} value={value}>{value} players</option>)}
+                </SelectField>
+                <SelectField id="lobby-cycles" label="Drawing cycles" value={cycles} onChange={(event) => setCycles(event.target.value)}>
+                  {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} cycles</option>)}
+                </SelectField>
+                <SelectField id="lobby-time" label="Turn time" value={time} onChange={(event) => setTime(event.target.value)}>
+                  {[45, 60, 90, 120].map((value) => <option key={value} value={value}>{value} seconds</option>)}
+                </SelectField>
+                <SelectField id="lobby-word-time" label="Word selection time" value={wordTime} onChange={(event) => setWordTime(event.target.value)}>
+                  {[10, 15, 20, 30].map((value) => <option key={value} value={value}>{value} seconds</option>)}
+                </SelectField>
+                <SelectField id="lobby-theme" label="Theme" value="general" onChange={() => {}}>
+                  {BUNDLED_THEMES.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+                </SelectField>
+                {proMode ? <div className="fixed-setting fixed-setting--penalty"><span>Incorrect guess</span><strong>−25 points</strong><small>Applied immediately after validation.</small></div> : null}
+              </div>
+            )
           ) : (
             <dl className="settings-summary">
+              <div><dt>Mode</dt><dd>{GAME_MODES[mode].name}</dd></div>
               <div><dt>Player cap</dt><dd>8 players</dd></div>
-              <div><dt>Drawing cycles</dt><dd>3</dd></div>
-              <div><dt>Turn time</dt><dd>90 seconds</dd></div>
-              <div><dt>Theme</dt><dd>General</dd></div>
+              {phoneMode ? (
+                <>
+                  <div><dt>Flow</dt><dd>4 simultaneous phases</dd></div>
+                  <div><dt>Text timer</dt><dd>60 seconds</dd></div>
+                  <div><dt>Drawing timer</dt><dd>120 seconds</dd></div>
+                  <div><dt>Chat & scores</dt><dd>Off</dd></div>
+                </>
+              ) : (
+                <>
+                  <div><dt>Drawing cycles</dt><dd>3</dd></div>
+                  <div><dt>Turn time</dt><dd>90 seconds</dd></div>
+                  <div><dt>Word selection time</dt><dd>15 seconds</dd></div>
+                  <div><dt>Theme</dt><dd>General</dd></div>
+                  {proMode ? <div><dt>Incorrect guess</dt><dd>−25 points</dd></div> : null}
+                </>
+              )}
             </dl>
           )}
-          <Banner tone="info" icon="lock" title="Private room">Custom prompts and room chat are visible only to this room.</Banner>
+          <Banner tone={phoneMinimum ? "warning" : "info"} icon={phoneMinimum ? "users" : "lock"} title={phoneMinimum ? "One more player needed" : phoneMode ? "Private Phone chains" : "Private room"}>
+            {phoneMinimum
+              ? "3 of the 4 required players are here. Start remains unavailable until the server confirms a fourth player."
+              : phoneMode
+                ? "Assigned authors stay hidden until summary. Phone Mode never shows room chat or scores."
+                : proMode
+                  ? "Custom prompts and room chat stay private. The −25 rule is visible to every player."
+                  : "Custom prompts and room chat are visible only to this room."}
+          </Banner>
         </Panel>
       </div>
       <div className="lobby-actionbar">
         <Button variant="secondary" icon="logOut" onClick={() => onNavigate("home")}>Leave room</Button>
         {isHost ? (
-          <Button icon="arrowRight" onClick={() => onNavigate("word-select")}>Start game · 5 players</Button>
+          <Button
+            icon="arrowRight"
+            disabled={phoneMinimum}
+            onClick={() => onNavigate(phoneMode ? "phone-phase-write" : proMode ? "pro-game-drawer" : "word-select")}
+          >
+            {phoneMinimum ? "Need 1 more player" : `Start ${GAME_MODES[mode].name} · ${players.length} players`}
+          </Button>
         ) : (
           <div className="waiting-status" role="status"><Icon name="clock" size={22} /><div><strong>Waiting for Maya</strong><span>Only the host can start the game.</span></div></div>
         )}
@@ -556,6 +798,7 @@ Object.assign(window, {
     JoinScreen,
     LobbyScreen,
     ProfileScreen,
+    ReviewRoomScreen,
     ThemeEditorScreen,
     ThemeLibraryScreen
   }

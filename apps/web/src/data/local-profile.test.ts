@@ -57,6 +57,19 @@ describe("local profile persistence", () => {
     expect(loadProfile(storage)).toEqual(profile);
   });
 
+  it("migrates the legacy avatar background to the design-system preset", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      "gtd:profile:v1",
+      JSON.stringify({
+        name: "Maya",
+        avatar: { ...DEFAULT_AVATAR, backgroundColor: "#dce7ff" },
+      }),
+    );
+
+    expect(loadProfile(storage).avatar.backgroundColor).toBe("#EEF4FF");
+  });
+
   it("stores reconnect credentials per room for the browser session", () => {
     const storage = new MemoryStorage();
     const credentials = {

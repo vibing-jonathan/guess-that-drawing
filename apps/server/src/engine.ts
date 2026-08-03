@@ -7,6 +7,17 @@ import type {
   DrawingEnvelope,
   DrawingOp,
   GuessFeedback,
+  PhoneActivePhase,
+  PhoneActivePublicState,
+  PhoneCompletePublicState,
+  PhoneDrawingEnvelope,
+  PhonePrivateState,
+  PhonePublicState,
+  PhoneStoryEntry,
+  PhoneStoryline,
+  PhoneSummaryNavigateResult,
+  PhoneSummaryNavigationAction,
+  PhoneSummaryPublicState,
   PlayerPublic,
   PlayerRoomSnapshot,
   ReplayState,
@@ -17,7 +28,11 @@ import type {
   ScoreChange,
   TurnResult,
 } from "@gtd/contracts";
-import { VALIDATION_LIMITS } from "@gtd/contracts";
+import {
+  PHONE_ACTIVE_PHASES,
+  SCORE_RULES,
+  VALIDATION_LIMITS,
+} from "@gtd/contracts";
 import { GameError } from "./errors.js";
 import type {
   AuthoritativeRoom,
@@ -27,6 +42,11 @@ import type {
   DrawingBatchCommand,
   EngineTransport,
   JoinRoomCommand,
+  PhoneDrawingBatchCommand,
+  ServerPhoneDrawingState,
+  ServerPhoneEntry,
+  ServerPhoneMatch,
+  ServerPhoneStoryline,
   ServerPlayer,
   ServerRound,
   SessionState,
@@ -34,11 +54,13 @@ import type {
 import { NOOP_TRANSPORT } from "./domain.js";
 import type { GamePersistence, PersistedSession } from "./persistence.js";
 
-const TURN_RESULTS_MS = 6_000;
+// Keep round:ended observable, but hand control to the next drawer on the next tick.
+const TURN_RESULTS_MS = 0;
 const ANONYMOUS_SESSION_TTL_MS = 10 * 60 * 1_000;
 const MAX_RECENT_COMMANDS_PER_SESSION = 64;
 const MAX_CHAT_MESSAGES = 100;
 const MAX_DRAWING_OPERATIONS = VALIDATION_LIMITS.drawingLogOperations;
+const PHONE_PHASES: readonly PhoneActivePhase[] = PHONE_ACTIVE_PHASES;
 
 export interface EngineTheme {
   id: string;
@@ -251,7 +273,11 @@ export class GameEngine {
               round: this.#publicRound(room),
             });
           }
-          this.#publishSnapshots(room);
+          if (room.settings.mode === "phone") {
+            this.#publishPhoneUpdates(room);
+          } else {
+            this.#publishSnapshots(room);
+          }
           return {
             sessionId: session.sessionId,
             reconnectToken: presentedReconnectToken,
@@ -380,6 +406,23 @@ export class GameEngine {
     player.disconnectedAt = now;
     this.#incrementRevision(room);
 
+    if (room.settings.mode === "phone") {
+      this.#schedule(
+        this.#seatTimerKey(room.code, player.id),
+        now + this.#config.disconnectedSeatMs,
+        async () => this.#expireDisconnectedSeat(room.code, player.id),
+      );
+      this.#emitRoom(room.code, "room:player-left", {
+        revision: room.revision,
+        playerId: player.id,
+        reason: "disconnected",
+        reconnectDeadline: now + this.#config.disconnectedSeatMs,
+      });
+      await Promise.all([this.#saveSession(session), this.#saveRoom(room)]);
+      this.#publishPhoneUpdates(room);
+      return;
+    }
+
     const disconnectedActiveDrawer =
       room.round?.drawerId === player.id &&
       (room.phase === "selecting" || room.phase === "drawing");
@@ -501,6 +544,7 @@ export class GameEngine {
       turnIndex: 0,
       currentCycle: 0,
       round: null,
+      phoneMatch: null,
       chat: [],
       recentCommands: {},
     };
@@ -595,6 +639,12 @@ export class GameEngine {
       return result;
     }
 
+    if (room.phase !== "lobby" && room.phase !== "final-results") {
+      throw new GameError(
+        "ROOM_STARTED",
+        "This match is already in progress.",
+      );
+    }
     if (room.players.length >= room.settings.maxPlayers) {
       throw new GameError("ROOM_FULL", "That room is full.");
     }
@@ -627,9 +677,6 @@ export class GameEngine {
       room.hostPlayerId = player.id;
     }
     room.players.push(player);
-    if (room.phase !== "lobby" && room.phase !== "final-results") {
-      room.pendingTurnPlayerIds.push(player.id);
-    }
     session.roomCode = room.code;
     session.playerId = player.id;
     session.expiresAt = room.expiresAt;
@@ -690,6 +737,11 @@ export class GameEngine {
     await this.#transport.leave(socketId, room.code);
     if (wasDrawer) {
       await this.#endTurn(room, "drawer-left");
+    } else if (room.settings.mode === "phone") {
+      this.#incrementRevision(room);
+      this.#advancePhoneIfReady(room);
+      await this.#saveRoom(room);
+      this.#publishPhoneUpdates(room);
     } else {
       this.#incrementRevision(room);
       await this.#saveRoom(room);
@@ -847,13 +899,20 @@ export class GameEngine {
     }
     if (wasDrawer) {
       await this.#endTurn(room, "drawer-left");
+    } else if (room.settings.mode === "phone") {
+      this.#incrementRevision(room);
+      this.#advancePhoneIfReady(room);
     } else {
       this.#incrementRevision(room);
     }
     const result = { revision: room.revision, data: {} };
     this.#recordCommand(room, session.sessionId, idempotencyId, "room:kick", result);
     await this.#saveRoom(room);
-    this.#publishSnapshots(room);
+    if (room.settings.mode === "phone") {
+      this.#publishPhoneUpdates(room);
+    } else {
+      this.#publishSnapshots(room);
+    }
     return result;
   }
 
@@ -878,12 +937,37 @@ export class GameEngine {
       throw new GameError("INVALID_PHASE", "A match is already in progress.");
     }
     const connectedPlayers = room.players.filter((candidate) => candidate.socketId);
-    if (connectedPlayers.length < 2) {
-      throw new GameError("INVALID_PHASE", "At least two connected players are required.");
+    const minimumPlayers = room.settings.mode === "phone" ? 4 : 2;
+    if (connectedPlayers.length < minimumPlayers) {
+      throw new GameError(
+        "INVALID_PHASE",
+        `At least ${minimumPlayers} connected players are required.`,
+      );
     }
     for (const candidate of room.players) {
       candidate.score = 0;
     }
+    if (room.settings.mode === "phone") {
+      room.round = null;
+      room.turnOrder = [];
+      room.pendingTurnPlayerIds = [];
+      room.turnIndex = 0;
+      room.currentCycle = 0;
+      room.chat = [];
+      this.#beginPhoneMatch(room, connectedPlayers);
+      const result = { revision: room.revision, data: {} };
+      this.#recordCommand(
+        room,
+        session.sessionId,
+        idempotencyId,
+        "match:start",
+        result,
+      );
+      await this.#saveRoom(room);
+      this.#publishPhoneUpdates(room);
+      return result;
+    }
+    room.phoneMatch = null;
     room.turnOrder = connectedPlayers
       .sort((left, right) => left.joinOrder - right.joinOrder)
       .map((candidate) => candidate.id);
@@ -1088,6 +1172,16 @@ export class GameEngine {
       return cached;
     }
     this.#assertExpectedRevision(room, expectedRevision);
+    if (
+      room.settings.mode === "phone" &&
+      room.phase !== "lobby" &&
+      room.phase !== "final-results"
+    ) {
+      throw new GameError(
+        "INVALID_PHASE",
+        "Chat is disabled during a Phone match.",
+      );
+    }
     if (room.phase === "drawing") {
       throw new GameError(
         "INVALID_PHASE",
@@ -1124,6 +1218,372 @@ export class GameEngine {
     return this.#handleGuess(membership, idempotencyId, text, turnId);
   }
 
+  async submitPhoneText(
+    socketId: string,
+    idempotencyId: string,
+    assignmentId: string,
+    rawText: string,
+  ): Promise<
+    EngineMutationResult<{
+      assignmentId: string;
+      submittedAt: number;
+    }>
+  > {
+    const { session, room, player } = await this.#requireMembership(socketId);
+    const cached = this.#cachedCommand<
+      EngineMutationResult<{ assignmentId: string; submittedAt: number }>
+    >(room, session.sessionId, idempotencyId, "phone:text:submit");
+    if (cached) {
+      return cached;
+    }
+    const entry = this.#currentPhoneEntryForPlayer(room, player.id);
+    if (
+      !entry ||
+      entry.id !== assignmentId ||
+      entry.kind !== "text" ||
+      entry.status !== "working"
+    ) {
+      throw new GameError(
+        entry?.status === "submitted" ? "DUPLICATE_EVENT" : "INVALID_PHASE",
+        "That Phone text assignment is no longer active.",
+      );
+    }
+    const text = rawText
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu, "")
+      .trim();
+    if (
+      text.length < VALIDATION_LIMITS.phoneText.min ||
+      text.length > VALIDATION_LIMITS.phoneText.max
+    ) {
+      throw new GameError(
+        "INVALID_PAYLOAD",
+        "Phone text must be 1-180 characters.",
+      );
+    }
+    const submittedAt = this.#now();
+    entry.text = text;
+    entry.status = "submitted";
+    entry.submittedAt = submittedAt;
+    this.#incrementRevision(room);
+    this.#advancePhoneIfReady(room);
+    const result = {
+      revision: room.revision,
+      data: { assignmentId, submittedAt },
+    };
+    this.#recordCommand(
+      room,
+      session.sessionId,
+      idempotencyId,
+      "phone:text:submit",
+      result,
+    );
+    await this.#saveRoom(room);
+    this.#publishPhoneUpdates(room);
+    return result;
+  }
+
+  async submitPhoneDrawingBatch(
+    socketId: string,
+    command: PhoneDrawingBatchCommand,
+  ): Promise<
+    EngineMutationResult<{
+      assignmentId: string;
+      acceptedThroughSequence: number;
+    }>
+  > {
+    const { session, room, player } = await this.#requireMembership(socketId);
+    const cached = this.#cachedCommand<
+      EngineMutationResult<{
+        assignmentId: string;
+        acceptedThroughSequence: number;
+      }>
+    >(room, session.sessionId, command.idempotencyId, "phone:drawing:batch");
+    if (cached) {
+      return cached;
+    }
+    const entry = this.#currentPhoneEntryForPlayer(room, player.id);
+    if (
+      !entry ||
+      entry.id !== command.assignmentId ||
+      entry.kind !== "drawing" ||
+      entry.status !== "working"
+    ) {
+      throw new GameError(
+        "INVALID_PHASE",
+        "That Phone drawing assignment is no longer active.",
+      );
+    }
+    const drawing = entry.drawing;
+    if (
+      command.operations.length === 0 ||
+      command.operations.length >
+        VALIDATION_LIMITS.drawingBatchOperations.max
+    ) {
+      throw new GameError(
+        "PAYLOAD_TOO_LARGE",
+        "A drawing batch must contain 1-64 operations.",
+      );
+    }
+    if (
+      drawing.envelopes.length + command.operations.length >
+      MAX_DRAWING_OPERATIONS
+    ) {
+      throw new GameError(
+        "PAYLOAD_TOO_LARGE",
+        "This Phone drawing log is full.",
+      );
+    }
+    const batchPointCount = command.operations.reduce(
+      (total, operation) =>
+        total +
+        (operation.kind === "stroke"
+          ? operation.points.length
+          : operation.kind === "shape"
+            ? 2
+            : 0),
+      0,
+    );
+    const batchByteCount = command.operations.reduce(
+      (total, operation) =>
+        total + this.#drawingOperationBytes(operation),
+      0,
+    );
+    if (
+      drawing.pointCount + batchPointCount >
+        VALIDATION_LIMITS.drawingLogPoints ||
+      drawing.byteCount + batchByteCount >
+        VALIDATION_LIMITS.drawingLogBytes
+    ) {
+      throw new GameError(
+        "PAYLOAD_TOO_LARGE",
+        "This Phone drawing data limit has been reached.",
+      );
+    }
+    const priorChunk = drawing.strokeChunks[command.strokeId];
+    const expectedChunk = priorChunk === undefined ? 0 : priorChunk + 1;
+    if (command.chunkId !== expectedChunk) {
+      throw new GameError(
+        "DRAWING_SEQUENCE_GAP",
+        "Drawing chunks must arrive in order.",
+        {
+          expectedChunk,
+          currentRevision: room.revision,
+          latestSequence: Math.max(0, drawing.nextServerSequence - 1),
+        },
+      );
+    }
+    for (const operation of command.operations) {
+      if (drawing.operationIds[operation.opId]) {
+        throw new GameError(
+          "DRAWING_SEQUENCE_GAP",
+          "Drawing operation IDs must be unique within an assignment.",
+          {
+            currentRevision: room.revision,
+            latestSequence: Math.max(0, drawing.nextServerSequence - 1),
+          },
+        );
+      }
+    }
+    const nextUndoStack = [...drawing.undoStack];
+    const nextRedoStack = [...drawing.redoStack];
+    this.#validateDrawingStackBatch(
+      command.operations,
+      command.strokeId,
+      command.chunkId,
+      nextUndoStack,
+      nextRedoStack,
+    );
+    const envelopes: PhoneDrawingEnvelope[] = command.operations.map(
+      (operation) => ({
+        assignmentId: entry.id,
+        strokeId: command.strokeId,
+        chunkId: command.chunkId,
+        serverSequence: drawing.nextServerSequence++,
+        operation: structuredClone(operation),
+      }),
+    );
+    drawing.strokeChunks[command.strokeId] = command.chunkId;
+    for (const operation of command.operations) {
+      drawing.operationIds[operation.opId] = true;
+    }
+    drawing.pointCount += batchPointCount;
+    drawing.byteCount += batchByteCount;
+    drawing.undoStack = nextUndoStack;
+    drawing.redoStack = nextRedoStack;
+    drawing.envelopes.push(...envelopes);
+    const acceptedThroughSequence =
+      envelopes.at(-1)?.serverSequence ??
+      Math.max(0, drawing.nextServerSequence - 1);
+    const result = {
+      revision: room.revision,
+      data: {
+        assignmentId: entry.id,
+        acceptedThroughSequence,
+      },
+    };
+    this.#recordCommand(
+      room,
+      session.sessionId,
+      command.idempotencyId,
+      "phone:drawing:batch",
+      result,
+    );
+    await this.#saveRoom(room);
+    return result;
+  }
+
+  async submitPhoneDrawing(
+    socketId: string,
+    idempotencyId: string,
+    assignmentId: string,
+  ): Promise<
+    EngineMutationResult<{
+      assignmentId: string;
+      submittedAt: number;
+    }>
+  > {
+    const { session, room, player } = await this.#requireMembership(socketId);
+    const cached = this.#cachedCommand<
+      EngineMutationResult<{ assignmentId: string; submittedAt: number }>
+    >(room, session.sessionId, idempotencyId, "phone:drawing:submit");
+    if (cached) {
+      return cached;
+    }
+    const entry = this.#currentPhoneEntryForPlayer(room, player.id);
+    if (
+      !entry ||
+      entry.id !== assignmentId ||
+      entry.kind !== "drawing" ||
+      entry.status !== "working"
+    ) {
+      throw new GameError(
+        entry?.status === "submitted" ? "DUPLICATE_EVENT" : "INVALID_PHASE",
+        "That Phone drawing assignment is no longer active.",
+      );
+    }
+    if (!this.#hasVisiblePhoneDrawing(entry.drawing)) {
+      throw new GameError(
+        "INVALID_PAYLOAD",
+        "Add something visible to the drawing before submitting.",
+      );
+    }
+    const submittedAt = this.#now();
+    entry.status = "submitted";
+    entry.submittedAt = submittedAt;
+    this.#incrementRevision(room);
+    this.#advancePhoneIfReady(room);
+    const result = {
+      revision: room.revision,
+      data: { assignmentId, submittedAt },
+    };
+    this.#recordCommand(
+      room,
+      session.sessionId,
+      idempotencyId,
+      "phone:drawing:submit",
+      result,
+    );
+    await this.#saveRoom(room);
+    this.#publishPhoneUpdates(room);
+    return result;
+  }
+
+  async navigatePhoneSummary(
+    socketId: string,
+    idempotencyId: string,
+    action: PhoneSummaryNavigationAction,
+  ): Promise<EngineMutationResult<{ phone: PhoneSummaryNavigateResult["phone"] }>> {
+    const { session, room, player } = await this.#requireMembership(socketId);
+    const cached = this.#cachedCommand<
+      EngineMutationResult<{ phone: PhoneSummaryNavigateResult["phone"] }>
+    >(room, session.sessionId, idempotencyId, "phone:summary:navigate");
+    if (cached) {
+      return cached;
+    }
+    this.#assertHost(room, player);
+    const match = room.phoneMatch;
+    if (
+      room.settings.mode !== "phone" ||
+      room.phase !== "phone-summary" ||
+      !match?.summaryCursor
+    ) {
+      throw new GameError(
+        "INVALID_PHASE",
+        "The Phone storyline summary is not active.",
+      );
+    }
+    const cursor = match.summaryCursor;
+    const lastStoryIndex = match.storylines.length - 1;
+    const lastEntryIndex = 3;
+    if (action === "finish") {
+      if (
+        cursor.storyIndex !== lastStoryIndex ||
+        cursor.entryIndex !== lastEntryIndex
+      ) {
+        throw new GameError(
+          "INVALID_PHASE",
+          "Reveal every storyline before finishing.",
+        );
+      }
+      room.phase = "final-results";
+      match.summaryCursor = null;
+      match.completedAt = this.#now();
+      this.#incrementRevision(room);
+    } else {
+      const previous = { ...cursor };
+      if (action === "next") {
+        if (cursor.entryIndex < lastEntryIndex) {
+          cursor.entryIndex += 1;
+        } else if (cursor.storyIndex < lastStoryIndex) {
+          cursor.storyIndex += 1;
+          cursor.entryIndex = 0;
+        }
+      } else if (cursor.entryIndex > 0) {
+        cursor.entryIndex -= 1;
+      } else if (cursor.storyIndex > 0) {
+        cursor.storyIndex -= 1;
+        cursor.entryIndex = lastEntryIndex;
+      }
+      if (
+        previous.storyIndex !== cursor.storyIndex ||
+        previous.entryIndex !== cursor.entryIndex
+      ) {
+        this.#incrementRevision(room);
+      }
+    }
+    const phone = this.#phonePublicState(room);
+    if (
+      phone.phase !== "phone-summary" &&
+      phone.phase !== "final-results"
+    ) {
+      throw new GameError("INTERNAL_ERROR", "Invalid Phone summary state.");
+    }
+    const result = {
+      revision: room.revision,
+      data: { phone },
+    };
+    this.#recordCommand(
+      room,
+      session.sessionId,
+      idempotencyId,
+      "phone:summary:navigate",
+      result,
+    );
+    await this.#saveRoom(room);
+    if (action === "finish") {
+      for (const candidate of room.players) {
+        if (candidate.socketId) {
+          this.#emitSocket(candidate.socketId, "match:finished", {
+            revision: room.revision,
+            snapshot: this.snapshotFor(room, candidate.id),
+          });
+        }
+      }
+    }
+    this.#publishPhoneUpdates(room);
+    return result;
+  }
+
   async snapshotForSocket(socketId: string): Promise<PlayerRoomSnapshot> {
     const { room, player } = await this.#requireMembership(socketId);
     return this.snapshotFor(room, player.id);
@@ -1141,6 +1601,25 @@ export class GameEngine {
 
   snapshotFor(room: AuthoritativeRoom, playerId: string): PlayerRoomSnapshot {
     const publicSnapshot = this.#publicSnapshot(room);
+    if (publicSnapshot.mode === "phone") {
+      if (
+        publicSnapshot.phase === "phone-writing" ||
+        publicSnapshot.phase === "phone-drawing-1" ||
+        publicSnapshot.phase === "phone-guessing" ||
+        publicSnapshot.phase === "phone-drawing-2"
+      ) {
+        return {
+          ...publicSnapshot,
+          selfPlayerId: playerId,
+          privatePhone: this.#phonePrivateState(room, playerId),
+        };
+      }
+      return {
+        ...publicSnapshot,
+        selfPlayerId: playerId,
+        privatePhone: null,
+      };
+    }
     const isDrawer = room.round?.drawerId === playerId;
     let privateRound: RoundPrivate | null = null;
     if (room.round && isDrawer) {
@@ -1200,7 +1679,7 @@ export class GameEngine {
             classification.kind === "correct"
               ? "You already guessed the word."
               : "That is close—keep the answer secret.",
-          scoreAwarded: 0,
+          scoreDelta: 0,
           placement: priorCorrectGuess.placement,
         };
         this.#emitSocket(player.socketId!, "guess:feedback", {
@@ -1229,9 +1708,14 @@ export class GameEngine {
         kind: "incorrect",
         turnId: room.round.turnId,
         message: "Not quite—keep guessing!",
-        scoreAwarded: 0,
+        scoreDelta: 0,
         placement: priorCorrectGuess.placement,
       };
+      this.#emitSocket(player.socketId!, "guess:feedback", {
+        revision: chatResult.revision,
+        feedbackId: idempotencyId,
+        feedback,
+      });
       const result = { revision: chatResult.revision, data: { feedback } };
       this.#replaceCachedCommandResult(
         room,
@@ -1249,7 +1733,7 @@ export class GameEngine {
         kind: "close",
         turnId: room.round.turnId,
         message: "Very close! Try another spelling.",
-        scoreAwarded: 0,
+        scoreDelta: 0,
         placement: null,
       };
       this.#emitSocket(player.socketId!, "guess:feedback", {
@@ -1270,26 +1754,55 @@ export class GameEngine {
     }
 
     if (classification.kind === "incorrect") {
-      const chatResult = await this.#publishChat(
-        membership,
-        idempotencyId,
-        text,
-        "guess:submit",
-      );
+      const sanitizedText = text
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu, "")
+        .trim();
+      if (!sanitizedText || sanitizedText.length > 180) {
+        throw new GameError(
+          "INVALID_PAYLOAD",
+          "Chat messages must be 1-180 characters.",
+        );
+      }
+      const penalty =
+        room.settings.mode === "pro"
+          ? Math.min(SCORE_RULES.proIncorrectGuessPenalty, player.score)
+          : 0;
+      player.score -= penalty;
+      this.#incrementRevision(room);
+      const message: ChatMessage = {
+        id: this.#id(),
+        roomRevision: room.revision,
+        playerId: player.id,
+        playerName: player.name,
+        text: sanitizedText,
+        createdAt: this.#now(),
+      };
+      room.chat.push(message);
+      if (room.chat.length > MAX_CHAT_MESSAGES) {
+        room.chat.splice(0, room.chat.length - MAX_CHAT_MESSAGES);
+      }
+      let change: ScoreChange | null = null;
+      if (room.settings.mode === "pro") {
+        change = {
+          playerId: player.id,
+          delta: penalty === 0 ? 0 : -penalty,
+          total: player.score,
+          reason: "incorrect-guess",
+        };
+        room.round.scoreChanges.push(change);
+      }
       const feedback: GuessFeedback = {
         kind: "incorrect",
         turnId: room.round.turnId,
-        message: "Not quite—keep guessing!",
-        scoreAwarded: 0,
+        message:
+          penalty > 0
+            ? `Not quite. -${penalty} points`
+            : "Not quite—keep guessing!",
+        scoreDelta: penalty === 0 ? 0 : -penalty,
         placement: null,
       };
-      this.#emitSocket(player.socketId!, "guess:feedback", {
-        revision: room.revision,
-        feedbackId: idempotencyId,
-        feedback,
-      });
-      const result = { revision: chatResult.revision, data: { feedback } };
-      this.#replaceCachedCommandResult(
+      const result = { revision: room.revision, data: { feedback } };
+      this.#recordCommand(
         room,
         session.sessionId,
         idempotencyId,
@@ -1297,6 +1810,21 @@ export class GameEngine {
         result,
       );
       await this.#saveRoom(room);
+      this.#emitRoom(room.code, "chat:message", {
+        revision: room.revision,
+        message,
+      });
+      if (change) {
+        this.#emitRoom(room.code, "score:updated", {
+          revision: room.revision,
+          changes: [change],
+        });
+      }
+      this.#emitSocket(player.socketId!, "guess:feedback", {
+        revision: room.revision,
+        feedbackId: idempotencyId,
+        feedback,
+      });
       return result;
     }
 
@@ -1304,7 +1832,7 @@ export class GameEngine {
     const remainingSeconds = Math.max(0, room.round.deadlineAt - this.#now()) / 1_000;
     const scoreAwarded = this.#rules.calculateGuesserScore(
       remainingSeconds,
-      room.settings.turnSeconds,
+      room.settings.mode === "phone" ? 0 : room.settings.turnSeconds,
       placement,
     );
     player.score += scoreAwarded;
@@ -1316,12 +1844,19 @@ export class GameEngine {
       scoreAwarded,
     };
     room.round.correctGuesses.push(guessRecord);
+    const correctScoreChange: ScoreChange = {
+      playerId: player.id,
+      delta: scoreAwarded,
+      total: player.score,
+      reason: "correct-guess",
+    };
+    room.round.scoreChanges.push(correctScoreChange);
     this.#incrementRevision(room);
     const feedback: GuessFeedback = {
       kind: "correct",
       turnId: room.round.turnId,
       message: `Correct! +${scoreAwarded} points`,
-      scoreAwarded,
+      scoreDelta: scoreAwarded,
       placement,
     };
     const publicGuess: CorrectGuessEvent = {
@@ -1342,14 +1877,7 @@ export class GameEngine {
     });
     this.#emitRoom(room.code, "score:updated", {
       revision: room.revision,
-      changes: [
-        {
-          playerId: player.id,
-          delta: scoreAwarded,
-          total: player.score,
-          reason: "correct-guess",
-        },
-      ],
+      changes: [correctScoreChange],
     });
     const result = { revision: room.revision, data: { feedback } };
     this.#recordCommand(
@@ -1427,11 +1955,534 @@ export class GameEngine {
     return result;
   }
 
+  #beginPhoneMatch(
+    room: AuthoritativeRoom,
+    connectedPlayers: ServerPlayer[],
+  ): void {
+    if (room.settings.mode !== "phone") {
+      throw new GameError("INTERNAL_ERROR", "Phone settings are required.");
+    }
+    const participants = this.#shuffle(
+      connectedPlayers.map((player) => ({
+        playerId: player.id,
+        playerName: player.name,
+        avatar: structuredClone(player.avatar),
+        joinedAt: player.joinedAt,
+        joinOrder: player.joinOrder,
+      })),
+    );
+    const shuffledOffsets = this.#shuffle(
+      Array.from({ length: participants.length - 1 }, (_, index) => index + 1),
+    );
+    const [firstOffset, secondOffset, thirdOffset] = shuffledOffsets;
+    if (
+      firstOffset === undefined ||
+      secondOffset === undefined ||
+      thirdOffset === undefined
+    ) {
+      throw new GameError(
+        "INVALID_PHASE",
+        "Phone mode requires at least four connected players.",
+      );
+    }
+    const now = this.#now();
+    const match: ServerPhoneMatch = {
+      matchId: this.#id(),
+      participantOrder: participants,
+      assignmentOffsets: [firstOffset, secondOffset, thirdOffset],
+      phaseIndex: 0,
+      phaseStartedAt: now,
+      deadlineAt: now + room.settings.textSeconds * 1_000,
+      storylines: participants.map((participant) => ({
+        id: this.#id(),
+        ownerPlayerId: participant.playerId,
+        entries: [],
+      })),
+      inactiveReasons: {},
+      summaryCursor: null,
+      completedAt: null,
+    };
+    room.phoneMatch = match;
+    room.phase = PHONE_PHASES[0]!;
+    this.#startPhonePhaseEntries(room, match);
+    this.#incrementRevision(room);
+    this.#armPhonePhaseTimer(room);
+  }
+
+  #startPhonePhaseEntries(
+    room: AuthoritativeRoom,
+    match: ServerPhoneMatch,
+  ): void {
+    const phase = PHONE_PHASES[match.phaseIndex];
+    if (!phase) {
+      throw new GameError("INTERNAL_ERROR", "Invalid Phone phase index.");
+    }
+    for (
+      let contributorIndex = 0;
+      contributorIndex < match.participantOrder.length;
+      contributorIndex += 1
+    ) {
+      const participant = match.participantOrder[contributorIndex]!;
+      const storylineIndex =
+        match.phaseIndex === 0
+          ? contributorIndex
+          : (contributorIndex +
+              match.assignmentOffsets[match.phaseIndex - 1]!) %
+            match.participantOrder.length;
+      const storyline = match.storylines[storylineIndex];
+      if (!storyline) {
+        throw new GameError(
+          "INTERNAL_ERROR",
+          "Phone storyline assignment is invalid.",
+        );
+      }
+      const inactiveReason = match.inactiveReasons[participant.playerId];
+      const base = {
+        id: this.#id(),
+        phase,
+        contributorPlayerId: participant.playerId,
+        status: inactiveReason ? ("skipped" as const) : ("working" as const),
+        submittedAt: null,
+        skippedReason: inactiveReason ?? null,
+      };
+      if (phase === "phone-writing" || phase === "phone-guessing") {
+        storyline.entries.push({
+          ...base,
+          phase,
+          kind: "text",
+          text: null,
+        });
+      } else {
+        storyline.entries.push({
+          ...base,
+          phase,
+          kind: "drawing",
+          drawing: this.#emptyPhoneDrawingState(),
+        });
+      }
+    }
+  }
+
+  #emptyPhoneDrawingState(): ServerPhoneDrawingState {
+    return {
+      envelopes: [],
+      operationIds: {},
+      pointCount: 0,
+      byteCount: 0,
+      nextServerSequence: 1,
+      strokeChunks: {},
+      undoStack: [],
+      redoStack: [],
+    };
+  }
+
+  #shuffle<T>(values: T[]): T[] {
+    const shuffled = [...values];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const target = Math.min(
+        index,
+        Math.floor(this.#random() * (index + 1)),
+      );
+      [shuffled[index], shuffled[target]] = [
+        shuffled[target]!,
+        shuffled[index]!,
+      ];
+    }
+    return shuffled;
+  }
+
+  #currentPhoneEntryForPlayer(
+    room: AuthoritativeRoom,
+    playerId: string,
+  ): ServerPhoneEntry | null {
+    const match = room.phoneMatch;
+    if (
+      room.settings.mode !== "phone" ||
+      !match ||
+      !PHONE_PHASES.includes(room.phase as PhoneActivePhase)
+    ) {
+      return null;
+    }
+    const phase = PHONE_PHASES[match.phaseIndex];
+    for (const storyline of match.storylines) {
+      const entry = storyline.entries[match.phaseIndex];
+      if (!entry) {
+        continue;
+      }
+      if (entry.phase === phase && entry.contributorPlayerId === playerId) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  #advancePhoneIfReady(room: AuthoritativeRoom): void {
+    const match = room.phoneMatch;
+    if (
+      !match ||
+      !PHONE_PHASES.includes(room.phase as PhoneActivePhase)
+    ) {
+      return;
+    }
+    const currentEntries = match.storylines.map(
+      (storyline) => storyline.entries[match.phaseIndex],
+    );
+    if (
+      currentEntries.length === match.participantOrder.length &&
+      currentEntries.every(
+        (entry) => entry && entry.status !== "working",
+      )
+    ) {
+      this.#advancePhonePhase(room);
+    }
+  }
+
+  #advancePhonePhase(room: AuthoritativeRoom): void {
+    const match = room.phoneMatch;
+    if (!match || room.settings.mode !== "phone") {
+      return;
+    }
+    this.#cancelTimer(this.#phaseTimerKey(room.code));
+    if (match.phaseIndex === 3) {
+      match.deadlineAt = null;
+      match.summaryCursor = { storyIndex: 0, entryIndex: 0 };
+      room.phase = "phone-summary";
+      this.#incrementRevision(room);
+      return;
+    }
+    match.phaseIndex = (match.phaseIndex + 1) as 1 | 2 | 3;
+    const now = this.#now();
+    match.phaseStartedAt = now;
+    const phase = PHONE_PHASES[match.phaseIndex]!;
+    room.phase = phase;
+    match.deadlineAt =
+      now +
+      (phase === "phone-writing" || phase === "phone-guessing"
+        ? room.settings.textSeconds
+        : room.settings.drawingSeconds) *
+        1_000;
+    this.#startPhonePhaseEntries(room, match);
+    this.#incrementRevision(room);
+    this.#armPhonePhaseTimer(room);
+  }
+
+  async #expirePhonePhase(room: AuthoritativeRoom): Promise<void> {
+    const match = room.phoneMatch;
+    if (
+      !match ||
+      room.settings.mode !== "phone" ||
+      !PHONE_PHASES.includes(room.phase as PhoneActivePhase)
+    ) {
+      return;
+    }
+    for (const storyline of match.storylines) {
+      const entry = storyline.entries[match.phaseIndex];
+      if (entry?.status === "working") {
+        entry.status = "skipped";
+        entry.skippedReason = "timeout";
+      }
+    }
+    this.#incrementRevision(room);
+    this.#advancePhonePhase(room);
+    await this.#saveRoom(room);
+    this.#publishPhoneUpdates(room);
+  }
+
+  #phonePublicState(room: AuthoritativeRoom): PhonePublicState {
+    const match = room.phoneMatch;
+    if (room.settings.mode !== "phone" || !match) {
+      throw new GameError("INTERNAL_ERROR", "Phone match state is missing.");
+    }
+    if (room.phase === "final-results") {
+      const complete: PhoneCompletePublicState = {
+        matchId: match.matchId,
+        phase: "final-results",
+        storyCount: match.storylines.length,
+      };
+      return complete;
+    }
+    if (room.phase === "phone-summary") {
+      const cursor = match.summaryCursor;
+      if (!cursor) {
+        throw new GameError(
+          "INTERNAL_ERROR",
+          "Phone summary cursor is missing.",
+        );
+      }
+      const storyline = match.storylines[cursor.storyIndex];
+      if (!storyline) {
+        throw new GameError(
+          "INTERNAL_ERROR",
+          "Phone summary storyline is missing.",
+        );
+      }
+      const summary: PhoneSummaryPublicState = {
+        matchId: match.matchId,
+        phase: "phone-summary",
+        storyCount: match.storylines.length,
+        cursor: structuredClone(cursor),
+        storyline: this.#publicPhoneStoryline(
+          match,
+          storyline,
+          cursor.entryIndex + 1,
+        ),
+      };
+      return summary;
+    }
+    const phase = PHONE_PHASES[match.phaseIndex];
+    if (room.phase !== phase || match.deadlineAt === null) {
+      throw new GameError("INTERNAL_ERROR", "Phone phase state is invalid.");
+    }
+    const participants = match.participantOrder.map((participant) => {
+      const entry = this.#currentPhoneEntryForPlayer(
+        room,
+        participant.playerId,
+      );
+      const livePlayer = room.players.find(
+        (candidate) => candidate.id === participant.playerId,
+      );
+      const status =
+        entry?.status === "submitted"
+          ? ("submitted" as const)
+          : entry?.status === "skipped"
+            ? ("skipped" as const)
+            : livePlayer?.socketId
+              ? ("working" as const)
+              : ("disconnected" as const);
+      return {
+        playerId: participant.playerId,
+        playerName: participant.playerName,
+        avatar: structuredClone(participant.avatar),
+        status,
+      };
+    });
+    const active: PhoneActivePublicState = {
+      matchId: match.matchId,
+      phase,
+      deadline: match.deadlineAt,
+      submittedCount: participants.filter(
+        ({ status }) => status === "submitted",
+      ).length,
+      totalCount: participants.length,
+      participants,
+    };
+    return active;
+  }
+
+  #phonePrivateState(
+    room: AuthoritativeRoom,
+    playerId: string,
+  ): PhonePrivateState | null {
+    const match = room.phoneMatch;
+    const entry = this.#currentPhoneEntryForPlayer(room, playerId);
+    if (!match || !entry) {
+      return null;
+    }
+    const storyline = match.storylines.find(
+      (candidate) => candidate.entries[match.phaseIndex]?.id === entry.id,
+    );
+    if (!storyline) {
+      return null;
+    }
+    const priorEntries = storyline.entries.slice(0, match.phaseIndex);
+    const skippedEntryCount = priorEntries.filter(
+      (candidate) => candidate.status === "skipped",
+    ).length;
+    const latestValid = [...priorEntries]
+      .reverse()
+      .find((candidate) => candidate.status === "submitted");
+    const prompt =
+      latestValid?.kind === "text" && latestValid.text
+        ? { kind: "text" as const, text: latestValid.text }
+        : latestValid?.kind === "drawing" &&
+            latestValid.drawing.envelopes.length > 0
+          ? {
+              kind: "drawing" as const,
+              envelopes: structuredClone(latestValid.drawing.envelopes),
+            }
+          : null;
+    return {
+      matchId: match.matchId,
+      phase: entry.phase,
+      assignmentId: entry.id,
+      prompt,
+      skippedEntryCount,
+      draft:
+        entry.kind === "drawing"
+          ? {
+              acceptedThroughSequence: Math.max(
+                0,
+                entry.drawing.nextServerSequence - 1,
+              ),
+              envelopes: structuredClone(entry.drawing.envelopes),
+            }
+          : null,
+      submitted: entry.status === "submitted",
+    };
+  }
+
+  #publicPhoneStoryline(
+    match: ServerPhoneMatch,
+    storyline: ServerPhoneStoryline,
+    entryCount: number,
+  ): PhoneStoryline {
+    return {
+      id: storyline.id,
+      entries: storyline.entries
+        .slice(0, entryCount)
+        .map((entry) => this.#publicPhoneEntry(match, entry)),
+    };
+  }
+
+  #publicPhoneEntry(
+    match: ServerPhoneMatch,
+    entry: ServerPhoneEntry,
+  ): PhoneStoryEntry {
+    const participant = match.participantOrder.find(
+      (candidate) => candidate.playerId === entry.contributorPlayerId,
+    );
+    if (!participant) {
+      throw new GameError(
+        "INTERNAL_ERROR",
+        "Phone entry contributor is missing.",
+      );
+    }
+    const author = {
+      playerId: participant.playerId,
+      playerName: participant.playerName,
+    };
+    if (entry.status === "skipped") {
+      return {
+        id: entry.id,
+        phase: entry.phase,
+        kind: "skipped",
+        author,
+        reason: entry.skippedReason ?? "timeout",
+      };
+    }
+    if (entry.kind === "text" && entry.text) {
+      return {
+        id: entry.id,
+        phase: entry.phase,
+        kind: "text",
+        author,
+        text: entry.text,
+      };
+    }
+    if (
+      entry.kind === "drawing" &&
+      entry.drawing.envelopes.length > 0
+    ) {
+      return {
+        id: entry.id,
+        phase: entry.phase,
+        kind: "drawing",
+        author,
+        envelopes: structuredClone(entry.drawing.envelopes),
+      };
+    }
+    throw new GameError(
+      "INTERNAL_ERROR",
+      "An unfinished Phone entry cannot be revealed.",
+    );
+  }
+
+  #hasVisiblePhoneDrawing(drawing: ServerPhoneDrawingState): boolean {
+    let visible = new Set<string>();
+    const before = new Map<string, Set<string>>();
+    const after = new Map<string, Set<string>>();
+    for (const envelope of drawing.envelopes) {
+      const operation = envelope.operation;
+      if (
+        operation.kind === "stroke" ||
+        operation.kind === "shape" ||
+        operation.kind === "clear"
+      ) {
+        before.set(operation.opId, new Set(visible));
+        if (operation.kind === "clear") {
+          visible.clear();
+        } else if (
+          operation.kind === "shape" ||
+          operation.tool === "brush"
+        ) {
+          visible.add(operation.opId);
+        }
+        after.set(operation.opId, new Set(visible));
+      } else if (operation.kind === "undo") {
+        visible = new Set(before.get(operation.targetOpId) ?? visible);
+      } else {
+        visible = new Set(after.get(operation.targetOpId) ?? visible);
+      }
+    }
+    return visible.size > 0;
+  }
+
+  #publishPhoneUpdates(room: AuthoritativeRoom): void {
+    if (
+      room.settings.mode !== "phone" ||
+      room.phase === "lobby" ||
+      !room.phoneMatch
+    ) {
+      this.#publishSnapshots(room);
+      return;
+    }
+    const phone = this.#phonePublicState(room);
+    this.#emitRoom(room.code, "phone:state", {
+      revision: room.revision,
+      phone,
+    });
+    for (const player of room.players) {
+      if (!player.socketId) {
+        continue;
+      }
+      this.#emitSocket(player.socketId, "phone:private", {
+        revision: room.revision,
+        privatePhone:
+          PHONE_PHASES.includes(room.phase as PhoneActivePhase)
+            ? this.#phonePrivateState(room, player.id)
+            : null,
+      });
+    }
+    this.#publishSnapshots(room);
+  }
+
+  #armPhonePhaseTimer(room: AuthoritativeRoom): void {
+    const match = room.phoneMatch;
+    if (
+      room.settings.mode !== "phone" ||
+      !match ||
+      match.deadlineAt === null ||
+      !PHONE_PHASES.includes(room.phase as PhoneActivePhase)
+    ) {
+      return;
+    }
+    const matchId = match.matchId;
+    const phaseIndex = match.phaseIndex;
+    this.#schedule(
+      this.#phaseTimerKey(room.code),
+      match.deadlineAt,
+      async () => {
+        const current = await this.#loadRoom(room.code);
+        if (
+          current?.phoneMatch?.matchId === matchId &&
+          current.phoneMatch.phaseIndex === phaseIndex &&
+          PHONE_PHASES.includes(current.phase as PhoneActivePhase)
+        ) {
+          await this.#expirePhonePhase(current);
+        }
+      },
+    );
+  }
+
   async #beginTurn(room: AuthoritativeRoom): Promise<void> {
     this.#cancelTimer(this.#phaseTimerKey(room.code));
     this.#cancelTimer(this.#drawerPauseTimerKey(room.code));
+    if (room.settings.mode === "phone") {
+      throw new GameError("INTERNAL_ERROR", "Phone matches do not use drawing turns.");
+    }
+    const settings = room.settings;
 
-    if (room.currentCycle > room.settings.drawingCycles || room.turnOrder.length === 0) {
+    if (room.currentCycle > settings.drawingCycles || room.turnOrder.length === 0) {
       await this.#finishMatch(room);
       return;
     }
@@ -1447,7 +2498,7 @@ export class GameEngine {
       drawer = undefined;
       this.#advanceTurnPosition(room);
       attempts += 1;
-      if (room.currentCycle > room.settings.drawingCycles) {
+      if (room.currentCycle > settings.drawingCycles) {
         await this.#finishMatch(room);
         return;
       }
@@ -1468,7 +2519,7 @@ export class GameEngine {
       choices,
       answer: null,
       normalizedAnswer: null,
-      choiceDeadlineAt: now + room.settings.wordSelectionSeconds * 1_000,
+      choiceDeadlineAt: now + settings.wordSelectionSeconds * 1_000,
       startedAt: null,
       deadlineAt: 0,
       resultDeadlineAt: null,
@@ -1477,6 +2528,7 @@ export class GameEngine {
       drawerPauseUsed: false,
       correctGuesses: [],
       drawerScoreAwarded: 0,
+      scoreChanges: [],
       drawingLog: [],
       drawingOperationIds: {},
       drawingPointCount: 0,
@@ -1526,6 +2578,9 @@ export class GameEngine {
   async #startDrawing(room: AuthoritativeRoom, choiceIndex: number): Promise<void> {
     if (!room.round) {
       return;
+    }
+    if (room.settings.mode === "phone") {
+      throw new GameError("INTERNAL_ERROR", "Phone matches do not use classic drawing turns.");
     }
     this.#cancelTimer(this.#phaseTimerKey(room.code));
     const answer = room.round.choices[choiceIndex];
@@ -1579,29 +2634,21 @@ export class GameEngine {
     this.#cancelTimer(this.#drawerPauseTimerKey(room.code));
     const round = room.round;
     const drawer = room.players.find((candidate) => candidate.id === round.drawerId);
-    const scoreChanges: ScoreChange[] = round.correctGuesses.flatMap((guess) => {
-        const guesser = room.players.find((candidate) => candidate.id === guess.playerId);
-        return guesser
-          ? [{
-              playerId: guess.playerId,
-              delta: guess.scoreAwarded,
-              total: guesser.score,
-              reason: "correct-guess" as const,
-            }]
-          : [];
-      });
+    const scoreChanges: ScoreChange[] = structuredClone(round.scoreChanges);
     if (drawer) {
       round.drawerScoreAwarded = this.#rules.calculateDrawerScore(
         round.correctGuesses.length,
       );
       drawer.score += round.drawerScoreAwarded;
       if (round.drawerScoreAwarded > 0) {
-        scoreChanges.push({
+        const drawerChange: ScoreChange = {
           playerId: drawer.id,
           delta: round.drawerScoreAwarded,
           total: drawer.score,
           reason: "drawer-guesses",
-        });
+        };
+        round.scoreChanges.push(drawerChange);
+        scoreChanges.push(drawerChange);
       }
     }
     room.phase = "turn-results";
@@ -1748,8 +2795,15 @@ export class GameEngine {
       await this.#saveSession(session);
     }
     this.#incrementRevision(room);
+    if (room.settings.mode === "phone") {
+      this.#advancePhoneIfReady(room);
+    }
     await this.#saveRoom(room);
-    this.#publishSnapshots(room);
+    if (room.settings.mode === "phone") {
+      this.#publishPhoneUpdates(room);
+    } else {
+      this.#publishSnapshots(room);
+    }
   }
 
   async #removePlayer(
@@ -1758,6 +2812,16 @@ export class GameEngine {
     reason: "left" | "kicked" | "expired",
   ): Promise<void> {
     const wasHost = room.hostPlayerId === player.id;
+    if (room.settings.mode === "phone" && room.phoneMatch) {
+      const skippedReason =
+        reason === "expired" ? "disconnected" : reason;
+      room.phoneMatch.inactiveReasons[player.id] = skippedReason;
+      const entry = this.#currentPhoneEntryForPlayer(room, player.id);
+      if (entry?.status === "working") {
+        entry.status = "skipped";
+        entry.skippedReason = skippedReason;
+      }
+    }
     const removedTurnIndex = room.turnOrder.indexOf(player.id);
     room.players = room.players.filter((candidate) => candidate.id !== player.id);
     room.turnOrder = room.turnOrder.filter((playerId) => playerId !== player.id);
@@ -1811,6 +2875,12 @@ export class GameEngine {
     customThemeInput?: CustomThemeInput,
     existingCustomTheme?: CustomThemeInput | null,
   ): { settings: RoomSettings; customTheme: CustomThemeInput | null } {
+    if (settingsInput.mode === "phone") {
+      return {
+        settings: structuredClone(settingsInput),
+        customTheme: null,
+      };
+    }
     if (settingsInput.theme.isCustom) {
       const selectedTheme =
         customThemeInput ??
@@ -1865,6 +2935,9 @@ export class GameEngine {
   }
 
   #pickWordChoices(room: AuthoritativeRoom): [string, string, string] {
+    if (room.settings.mode === "phone") {
+      throw new GameError("INVALID_PHASE", "Phone mode does not use word choices.");
+    }
     const words = room.customTheme?.words ?? this.#rules.getTheme(room.settings.theme.id)?.words;
     if (!words || words.length < 3) {
       throw new GameError("INVALID_THEME", "This theme needs at least three words.");
@@ -1933,20 +3006,104 @@ export class GameEngine {
   }
 
   #publicSnapshot(room: AuthoritativeRoom): RoomSnapshot {
-    return {
+    const common = {
       code: room.code,
       revision: room.revision,
-      phase: room.phase,
-      settings: structuredClone(room.settings),
       players: room.players
         .map((player) => this.#publicPlayer(room, player))
         .sort((left, right) => left.joinOrder - right.joinOrder),
-      round: room.round ? this.#publicRound(room) : null,
-      drawing: room.round ? this.#drawingReplay(room, 0) : null,
-      chat: structuredClone(room.chat),
       serverTime: this.#now(),
       createdAt: room.createdAt,
       expiresAt: room.expiresAt,
+    };
+    if (room.settings.mode === "phone") {
+      const phoneCommon = {
+        ...common,
+        mode: "phone" as const,
+        settings: structuredClone(room.settings),
+        round: null,
+        drawing: null,
+        chat: [],
+      };
+      if (room.phase === "lobby") {
+        return {
+          ...phoneCommon,
+          phase: "lobby",
+          phone: null,
+        };
+      }
+      if (
+        room.phase === "phone-writing" ||
+        room.phase === "phone-drawing-1" ||
+        room.phase === "phone-guessing" ||
+        room.phase === "phone-drawing-2"
+      ) {
+        const phone = this.#phonePublicState(room);
+        if (
+          phone.phase !== "phone-writing" &&
+          phone.phase !== "phone-drawing-1" &&
+          phone.phase !== "phone-guessing" &&
+          phone.phase !== "phone-drawing-2"
+        ) {
+          throw new GameError("INTERNAL_ERROR", "Invalid active Phone state.");
+        }
+        return {
+          ...phoneCommon,
+          phase: room.phase,
+          phone,
+        };
+      }
+      if (room.phase === "phone-summary") {
+        const phone = this.#phonePublicState(room);
+        if (phone.phase !== "phone-summary") {
+          throw new GameError("INTERNAL_ERROR", "Invalid Phone summary state.");
+        }
+        return {
+          ...phoneCommon,
+          phase: "phone-summary",
+          phone,
+        };
+      }
+      if (room.phase === "final-results") {
+        const phone = this.#phonePublicState(room);
+        if (phone.phase !== "final-results") {
+          throw new GameError("INTERNAL_ERROR", "Invalid Phone completion state.");
+        }
+        return {
+          ...phoneCommon,
+          phase: "final-results",
+          phone,
+        };
+      }
+      throw new GameError("INTERNAL_ERROR", "Invalid Phone room phase.");
+    }
+    if (
+      room.phase === "phone-writing" ||
+      room.phase === "phone-drawing-1" ||
+      room.phase === "phone-guessing" ||
+      room.phase === "phone-drawing-2" ||
+      room.phase === "phone-summary"
+    ) {
+      throw new GameError("INTERNAL_ERROR", "Invalid classic room phase.");
+    }
+    const classicCommon = {
+      ...common,
+      phase: room.phase,
+      round: room.round ? this.#publicRound(room) : null,
+      drawing: room.round ? this.#drawingReplay(room, 0) : null,
+      chat: structuredClone(room.chat),
+    };
+    if (room.settings.mode === "classic") {
+      return {
+        ...classicCommon,
+        mode: "classic",
+        settings: structuredClone(room.settings),
+      };
+    }
+    return {
+      ...classicCommon,
+      mode: "pro",
+      settings: structuredClone(room.settings),
     };
   }
 
@@ -1971,8 +3128,20 @@ export class GameEngine {
   }
 
   #publicRound(room: AuthoritativeRoom): RoundPublic {
-    if (!room.round || room.phase === "lobby" || room.phase === "final-results") {
+    if (
+      room.settings.mode === "phone" ||
+      !room.round ||
+      room.phase === "lobby" ||
+      room.phase === "final-results"
+    ) {
       throw new GameError("INTERNAL_ERROR", "The room has no public round.");
+    }
+    if (
+      room.phase !== "selecting" &&
+      room.phase !== "drawing" &&
+      room.phase !== "turn-results"
+    ) {
+      throw new GameError("INTERNAL_ERROR", "The room has no active classic phase.");
     }
     return {
       turnId: room.round.turnId,
@@ -2154,6 +3323,19 @@ export class GameEngine {
 
   async #advanceExpiredPhase(room: AuthoritativeRoom): Promise<void> {
     const now = this.#now();
+    if (
+      room.settings.mode === "phone" &&
+      room.phoneMatch &&
+      PHONE_PHASES.includes(room.phase as PhoneActivePhase)
+    ) {
+      if (
+        room.phoneMatch.deadlineAt !== null &&
+        room.phoneMatch.deadlineAt <= now
+      ) {
+        await this.#expirePhonePhase(room);
+      }
+      return;
+    }
     const round = room.round;
     if (!round) {
       return;
@@ -2188,9 +3370,30 @@ export class GameEngine {
 
   #prepareRehydratedRoom(room: AuthoritativeRoom): void {
     const now = this.#now();
+    const legacySettings = room.settings as unknown as Record<string, unknown>;
+    if (!legacySettings.mode) {
+      room.settings = {
+        ...legacySettings,
+        mode: "classic",
+      } as unknown as RoomSettings;
+    }
     room.chat ??= [];
     room.recentCommands ??= {};
+    room.phoneMatch ??= null;
     if (room.round) {
+      room.round.scoreChanges ??= room.round.correctGuesses.flatMap((guess) => {
+        const guesser = room.players.find(
+          (candidate) => candidate.id === guess.playerId,
+        );
+        return guesser
+          ? [{
+              playerId: guess.playerId,
+              delta: guess.scoreAwarded,
+              total: guesser.score,
+              reason: "correct-guess" as const,
+            }]
+          : [];
+      });
       room.round.drawingOperationIds ??= Object.fromEntries(
         room.round.drawingLog.map((envelope) => [
           envelope.operation.opId,
@@ -2212,6 +3415,54 @@ export class GameEngine {
           total + this.#drawingOperationBytes(envelope.operation),
         0,
       );
+    }
+    if (room.phoneMatch) {
+      room.phoneMatch.inactiveReasons ??= {};
+      for (const storyline of room.phoneMatch.storylines) {
+        for (const entry of storyline.entries) {
+          if (entry.kind !== "drawing") {
+            continue;
+          }
+          const drawing = entry.drawing;
+          drawing.operationIds ??= Object.fromEntries(
+            drawing.envelopes.map((envelope) => [
+              envelope.operation.opId,
+              true as const,
+            ]),
+          );
+          drawing.pointCount ??= drawing.envelopes.reduce(
+            (total, envelope) =>
+              total +
+              (envelope.operation.kind === "stroke"
+                ? envelope.operation.points.length
+                : envelope.operation.kind === "shape"
+                  ? 2
+                  : 0),
+            0,
+          );
+          drawing.byteCount ??= drawing.envelopes.reduce(
+            (total, envelope) =>
+              total + this.#drawingOperationBytes(envelope.operation),
+            0,
+          );
+          drawing.nextServerSequence ??=
+            Math.max(
+              0,
+              ...drawing.envelopes.map(
+                (envelope) => envelope.serverSequence,
+              ),
+            ) + 1;
+          drawing.strokeChunks ??= {};
+          for (const envelope of drawing.envelopes) {
+            drawing.strokeChunks[envelope.strokeId] = Math.max(
+              drawing.strokeChunks[envelope.strokeId] ?? -1,
+              envelope.chunkId,
+            );
+          }
+          drawing.undoStack ??= [];
+          drawing.redoStack ??= [];
+        }
+      }
     }
     for (const player of room.players) {
       player.socketId = null;
@@ -2236,6 +3487,21 @@ export class GameEngine {
         this.#now() + this.#config.emptyRoomTtlMs,
         async () => this.#expireRoom(room.code),
       );
+      return;
+    }
+    if (
+      room.settings.mode === "phone" &&
+      room.phoneMatch &&
+      PHONE_PHASES.includes(room.phase as PhoneActivePhase)
+    ) {
+      if (
+        room.phoneMatch.deadlineAt !== null &&
+        room.phoneMatch.deadlineAt <= this.#now()
+      ) {
+        await this.#expirePhonePhase(room);
+      } else {
+        this.#armPhonePhaseTimer(room);
+      }
       return;
     }
     if (
@@ -2554,6 +3820,10 @@ export class GameEngine {
   }
 
   #armCurrentPhaseTimer(room: AuthoritativeRoom): void {
+    if (room.settings.mode === "phone") {
+      this.#armPhonePhaseTimer(room);
+      return;
+    }
     const round = room.round;
     if (!round) {
       return;

@@ -9,6 +9,10 @@ import {
   JoinRoomRequestSchema,
   KickPlayerRequestSchema,
   LeaveRoomRequestSchema,
+  PhoneDrawingBatchRequestSchema,
+  PhoneDrawingSubmitRequestSchema,
+  PhoneSummaryNavigateRequestSchema,
+  PhoneTextSubmitRequestSchema,
   ResumeSessionRequestSchema,
   SelectWordRequestSchema,
   SnapshotRequestSchema,
@@ -218,7 +222,11 @@ function establishSocket(
           ...(request.customTheme
             ? {
                 customTheme: {
-                  id: request.customTheme.id ?? request.settings.theme.id,
+                  id:
+                    request.customTheme.id ??
+                    (request.settings.mode === "phone"
+                      ? ""
+                      : request.settings.theme.id),
                   name: request.customTheme.name,
                   words: request.customTheme.words,
                 },
@@ -337,7 +345,11 @@ function establishSocket(
           request.settings,
           request.customTheme
             ? {
-                id: request.customTheme.id ?? request.settings.theme.id,
+                id:
+                  request.customTheme.id ??
+                  (request.settings.mode === "phone"
+                    ? ""
+                    : request.settings.theme.id),
                 name: request.customTheme.name,
                 words: request.customTheme.words,
               }
@@ -469,6 +481,128 @@ function establishSocket(
           data: {
             revision: result.revision,
             acceptedThroughSequence: result.data.acceptedThroughSequence,
+          },
+          revision: result.revision,
+        };
+      },
+    );
+  });
+
+  socket.on("phone:text:submit", (rawRequest, ack) => {
+    void respondValidated(
+      socket,
+      limiter,
+      PhoneTextSubmitRequestSchema,
+      rawRequest,
+      ack,
+      rawRequest?.mutation?.idempotencyId,
+      MUTATION_RATE,
+      async (request) => {
+        const result = await engine.submitPhoneText(
+          socket.id,
+          request.mutation.idempotencyId,
+          request.assignmentId,
+          request.text,
+        );
+        return {
+          data: {
+            revision: result.revision,
+            assignmentId: result.data.assignmentId,
+            submittedAt: result.data.submittedAt,
+          },
+          revision: result.revision,
+        };
+      },
+    );
+  });
+
+  socket.on("phone:drawing:batch", (rawRequest, ack) => {
+    if (typeof ack !== "function") {
+      return;
+    }
+    if (safeJsonByteLength(rawRequest) > DRAWING_PAYLOAD_BYTES) {
+      ackFailure(
+        ack,
+        new GameError("PAYLOAD_TOO_LARGE", "Drawing batch is too large."),
+        { idempotencyId: rawRequest?.mutation?.idempotencyId },
+      );
+      return;
+    }
+    void respondValidated(
+      socket,
+      limiter,
+      PhoneDrawingBatchRequestSchema,
+      rawRequest,
+      ack,
+      rawRequest?.mutation?.idempotencyId,
+      DRAWING_RATE,
+      async (request) => {
+        const result = await engine.submitPhoneDrawingBatch(socket.id, {
+          idempotencyId: request.mutation.idempotencyId,
+          assignmentId: request.assignmentId,
+          strokeId: request.strokeId,
+          chunkId: request.chunkId,
+          operations: request.operations,
+        });
+        return {
+          data: {
+            revision: result.revision,
+            assignmentId: result.data.assignmentId,
+            acceptedThroughSequence:
+              result.data.acceptedThroughSequence,
+          },
+          revision: result.revision,
+        };
+      },
+    );
+  });
+
+  socket.on("phone:drawing:submit", (rawRequest, ack) => {
+    void respondValidated(
+      socket,
+      limiter,
+      PhoneDrawingSubmitRequestSchema,
+      rawRequest,
+      ack,
+      rawRequest?.mutation?.idempotencyId,
+      MUTATION_RATE,
+      async (request) => {
+        const result = await engine.submitPhoneDrawing(
+          socket.id,
+          request.mutation.idempotencyId,
+          request.assignmentId,
+        );
+        return {
+          data: {
+            revision: result.revision,
+            assignmentId: result.data.assignmentId,
+            submittedAt: result.data.submittedAt,
+          },
+          revision: result.revision,
+        };
+      },
+    );
+  });
+
+  socket.on("phone:summary:navigate", (rawRequest, ack) => {
+    void respondValidated(
+      socket,
+      limiter,
+      PhoneSummaryNavigateRequestSchema,
+      rawRequest,
+      ack,
+      rawRequest?.mutation?.idempotencyId,
+      MUTATION_RATE,
+      async (request) => {
+        const result = await engine.navigatePhoneSummary(
+          socket.id,
+          request.mutation.idempotencyId,
+          request.action,
+        );
+        return {
+          data: {
+            revision: result.revision,
+            phone: result.data.phone,
           },
           revision: result.revision,
         };

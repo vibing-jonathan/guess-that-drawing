@@ -37,6 +37,16 @@ import type {
   StartMatchRequest,
   DrawingResetEvent,
   MatchFinishedEvent,
+  PhoneDrawingBatchRequest,
+  PhoneDrawingBatchResult,
+  PhoneDrawingSubmitRequest,
+  PhoneDrawingSubmitResult,
+  PhonePrivateStateEvent,
+  PhoneStateEvent,
+  PhoneSummaryNavigateRequest,
+  PhoneSummaryNavigateResult,
+  PhoneTextSubmitRequest,
+  PhoneTextSubmitResult,
   SnapshotRequiredEvent,
   TurnEndedEvent,
   UpdateProfileRequest,
@@ -95,6 +105,22 @@ export interface ClientToServerEvents {
     request: DrawingReplayRequest,
     ack: AckCallback<ReplayState>,
   ) => void;
+  "phone:text:submit": (
+    request: PhoneTextSubmitRequest,
+    ack: AckCallback<PhoneTextSubmitResult>,
+  ) => void;
+  "phone:drawing:batch": (
+    request: PhoneDrawingBatchRequest,
+    ack: AckCallback<PhoneDrawingBatchResult>,
+  ) => void;
+  "phone:drawing:submit": (
+    request: PhoneDrawingSubmitRequest,
+    ack: AckCallback<PhoneDrawingSubmitResult>,
+  ) => void;
+  "phone:summary:navigate": (
+    request: PhoneSummaryNavigateRequest,
+    ack: AckCallback<PhoneSummaryNavigateResult>,
+  ) => void;
   "chat:send": (
     request: ChatSendRequest,
     ack: AckCallback<ChatMessage>,
@@ -133,6 +159,8 @@ export interface ServerToClientEvents {
   "guess:feedback": (event: GuessFeedbackEvent) => void;
   "guess:correct": (event: CorrectGuessBroadcast) => void;
   "score:updated": (event: ScoreUpdatedEvent) => void;
+  "phone:state": (event: PhoneStateEvent) => void;
+  "phone:private": (event: PhonePrivateStateEvent) => void;
   "snapshot:required": (event: SnapshotRequiredEvent) => void;
   "server:shutdown": (event: ServerShutdownEvent) => void;
 }

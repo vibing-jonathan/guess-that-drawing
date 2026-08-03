@@ -31,7 +31,18 @@ export function loadProfile(
     }
 
     const parsed = PlayerProfileSchema.safeParse(JSON.parse(raw));
-    return parsed.success ? parsed.data : DEFAULT_PROFILE;
+    if (!parsed.success) {
+      return DEFAULT_PROFILE;
+    }
+    return parsed.data.avatar.backgroundColor.toUpperCase() === "#DCE7FF"
+      ? {
+          ...parsed.data,
+          avatar: {
+            ...parsed.data.avatar,
+            backgroundColor: DEFAULT_AVATAR.backgroundColor,
+          },
+        }
+      : parsed.data;
   } catch {
     return DEFAULT_PROFILE;
   }

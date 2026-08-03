@@ -6,6 +6,8 @@ import {
   DRAWING_SIZES,
   ERROR_CODES,
   GAME_DEFAULTS,
+  GAME_MODES,
+  PHONE_ACTIVE_PHASES,
   ROOM_CODE_PATTERN,
   VALIDATION_LIMITS,
 } from "./constants.js";
@@ -73,7 +75,7 @@ export const DEFAULT_AVATAR: AvatarConfig = {
   eyes: "dots",
   mouth: "smile",
   accessory: "none",
-  backgroundColor: "#DCE7FF",
+  backgroundColor: "#EEF4FF",
 };
 
 export const PlayerProfileSchema = z
@@ -120,22 +122,86 @@ export const ThemeDescriptorSchema = z
   .strict();
 export type ThemeDescriptor = z.infer<typeof ThemeDescriptorSchema>;
 
-export const RoomSettingsSchema = z
+export const GameModeSchema = z.enum(GAME_MODES);
+export type GameMode = z.infer<typeof GameModeSchema>;
+
+const ClassicGameSettingsFields = {
+  maxPlayers: z
+    .number()
+    .int()
+    .min(GAME_DEFAULTS.minPlayers)
+    .max(GAME_DEFAULTS.maxPlayers),
+  drawingCycles: z.number().int().min(1).max(10),
+  turnSeconds: z.number().int().min(30).max(180),
+  wordSelectionSeconds: z.number().int().min(5).max(30),
+  theme: ThemeDescriptorSchema,
+} as const;
+
+export const ClassicRoomSettingsSchema = z
   .object({
+    mode: z.literal("classic"),
+    ...ClassicGameSettingsFields,
+  })
+  .strict();
+export type ClassicRoomSettings = z.infer<
+  typeof ClassicRoomSettingsSchema
+>;
+
+export const ProRoomSettingsSchema = z
+  .object({
+    mode: z.literal("pro"),
+    ...ClassicGameSettingsFields,
+  })
+  .strict();
+export type ProRoomSettings = z.infer<typeof ProRoomSettingsSchema>;
+
+export const PhoneRoomSettingsSchema = z
+  .object({
+    mode: z.literal("phone"),
     maxPlayers: z
       .number()
       .int()
-      .min(GAME_DEFAULTS.minPlayers)
+      .min(GAME_DEFAULTS.phoneMinPlayers)
       .max(GAME_DEFAULTS.maxPlayers),
-    drawingCycles: z.number().int().min(1).max(10),
-    turnSeconds: z.number().int().min(30).max(180),
-    wordSelectionSeconds: z.number().int().min(5).max(30),
-    theme: ThemeDescriptorSchema,
+    textSeconds: z
+      .number()
+      .int()
+      .min(VALIDATION_LIMITS.phoneTextSeconds.min)
+      .max(VALIDATION_LIMITS.phoneTextSeconds.max),
+    drawingSeconds: z
+      .number()
+      .int()
+      .min(VALIDATION_LIMITS.phoneDrawingSeconds.min)
+      .max(VALIDATION_LIMITS.phoneDrawingSeconds.max),
   })
   .strict();
+export type PhoneRoomSettings = z.infer<typeof PhoneRoomSettingsSchema>;
+
+const normalizeLegacyRoomSettings = (value: unknown): unknown => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    "mode" in value
+  ) {
+    return value;
+  }
+
+  return { ...value, mode: "classic" };
+};
+
+export const RoomSettingsSchema = z.preprocess(
+  normalizeLegacyRoomSettings,
+  z.discriminatedUnion("mode", [
+    ClassicRoomSettingsSchema,
+    ProRoomSettingsSchema,
+    PhoneRoomSettingsSchema,
+  ]),
+);
 export type RoomSettings = z.infer<typeof RoomSettingsSchema>;
 
-export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
+export const DEFAULT_ROOM_SETTINGS: ClassicRoomSettings = {
+  mode: "classic",
   maxPlayers: GAME_DEFAULTS.roomCapacity,
   drawingCycles: GAME_DEFAULTS.drawingCycles,
   turnSeconds: GAME_DEFAULTS.turnSeconds,
@@ -148,14 +214,43 @@ export const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   },
 };
 
+export const DEFAULT_PHONE_ROOM_SETTINGS: PhoneRoomSettings = {
+  mode: "phone",
+  maxPlayers: GAME_DEFAULTS.roomCapacity,
+  textSeconds: GAME_DEFAULTS.phoneTextSeconds,
+  drawingSeconds: GAME_DEFAULTS.phoneDrawingSeconds,
+};
+
 export const RoomPhaseSchema = z.enum([
   "lobby",
   "selecting",
   "drawing",
   "turn-results",
   "final-results",
+  ...PHONE_ACTIVE_PHASES,
+  "phone-summary",
 ]);
 export type RoomPhase = z.infer<typeof RoomPhaseSchema>;
+
+export const ClassicRoomPhaseSchema = z.enum([
+  "lobby",
+  "selecting",
+  "drawing",
+  "turn-results",
+  "final-results",
+]);
+export type ClassicRoomPhase = z.infer<typeof ClassicRoomPhaseSchema>;
+
+export const PhoneActivePhaseSchema = z.enum(PHONE_ACTIVE_PHASES);
+export type PhoneActivePhase = z.infer<typeof PhoneActivePhaseSchema>;
+
+export const PhoneRoomPhaseSchema = z.enum([
+  "lobby",
+  ...PHONE_ACTIVE_PHASES,
+  "phone-summary",
+  "final-results",
+]);
+export type PhoneRoomPhase = z.infer<typeof PhoneRoomPhaseSchema>;
 
 export const WordMaskSchema = z
   .object({
@@ -169,7 +264,7 @@ export type WordMask = z.infer<typeof WordMaskSchema>;
 export const RoundPublicSchema = z
   .object({
     turnId: IdentifierSchema,
-    phase: RoomPhaseSchema.exclude(["lobby", "final-results"]),
+    phase: ClassicRoomPhaseSchema.exclude(["lobby", "final-results"]),
     drawerId: IdentifierSchema,
     cycle: z.number().int().positive(),
     cycleCount: z.number().int().positive(),
@@ -304,7 +399,7 @@ export const GuessFeedbackSchema = z
     kind: GuessKindSchema,
     turnId: IdentifierSchema,
     message: z.string().min(1).max(100),
-    scoreAwarded: z.number().int().nonnegative(),
+    scoreDelta: z.number().int(),
     placement: z.number().int().positive().nullable(),
   })
   .strict();
@@ -329,7 +424,12 @@ export const ScoreChangeSchema = z
     playerId: IdentifierSchema,
     delta: z.number().int(),
     total: z.number().int().nonnegative(),
-    reason: z.enum(["correct-guess", "drawer-guesses", "adjustment"]),
+    reason: z.enum([
+      "correct-guess",
+      "incorrect-guess",
+      "drawer-guesses",
+      "adjustment",
+    ]),
   })
   .strict();
 export type ScoreChange = z.infer<typeof ScoreChangeSchema>;
@@ -369,27 +469,492 @@ export const ReplayStateSchema = z
   .strict();
 export type ReplayState = z.infer<typeof ReplayStateSchema>;
 
-export const RoomSnapshotSchema = z
+export const PhoneStoryEntryAuthorSchema = z
   .object({
-    code: RoomCodeSchema,
-    revision: RevisionSchema,
-    phase: RoomPhaseSchema,
-    settings: RoomSettingsSchema,
-    players: z.array(PlayerPublicSchema).max(GAME_DEFAULTS.maxPlayers),
-    round: RoundPublicSchema.nullable(),
-    drawing: ReplayStateSchema.nullable(),
-    chat: z.array(ChatMessageSchema).max(200),
-    serverTime: MillisecondsTimestampSchema,
-    createdAt: MillisecondsTimestampSchema,
-    expiresAt: MillisecondsTimestampSchema,
+    playerId: IdentifierSchema,
+    playerName: nonBlank(
+      VALIDATION_LIMITS.playerName.min,
+      VALIDATION_LIMITS.playerName.max,
+    ),
   })
   .strict();
+export type PhoneStoryEntryAuthor = z.infer<
+  typeof PhoneStoryEntryAuthorSchema
+>;
+
+export const PhoneDrawingEnvelopeSchema = z
+  .object({
+    assignmentId: IdentifierSchema,
+    strokeId: IdentifierSchema,
+    chunkId: z.number().int().nonnegative(),
+    serverSequence: ServerSequenceSchema,
+    operation: DrawingOpSchema,
+  })
+  .strict();
+export type PhoneDrawingEnvelope = z.infer<
+  typeof PhoneDrawingEnvelopeSchema
+>;
+
+const PhoneDrawingEnvelopesSchema = z
+  .array(PhoneDrawingEnvelopeSchema)
+  .min(1)
+  .max(VALIDATION_LIMITS.drawingLogOperations);
+
+export const PhoneStoryTextEntrySchema = z
+  .object({
+    id: IdentifierSchema,
+    phase: z.enum(["phone-writing", "phone-guessing"]),
+    kind: z.literal("text"),
+    author: PhoneStoryEntryAuthorSchema,
+    text: nonBlank(
+      VALIDATION_LIMITS.phoneText.min,
+      VALIDATION_LIMITS.phoneText.max,
+    ),
+  })
+  .strict();
+export type PhoneStoryTextEntry = z.infer<
+  typeof PhoneStoryTextEntrySchema
+>;
+
+export const PhoneStoryDrawingEntrySchema = z
+  .object({
+    id: IdentifierSchema,
+    phase: z.enum(["phone-drawing-1", "phone-drawing-2"]),
+    kind: z.literal("drawing"),
+    author: PhoneStoryEntryAuthorSchema,
+    envelopes: PhoneDrawingEnvelopesSchema,
+  })
+  .strict();
+export type PhoneStoryDrawingEntry = z.infer<
+  typeof PhoneStoryDrawingEntrySchema
+>;
+
+export const PhoneStorySkippedEntrySchema = z
+  .object({
+    id: IdentifierSchema,
+    phase: PhoneActivePhaseSchema,
+    kind: z.literal("skipped"),
+    author: PhoneStoryEntryAuthorSchema,
+    reason: z.enum(["timeout", "left", "kicked", "disconnected"]),
+  })
+  .strict();
+export type PhoneStorySkippedEntry = z.infer<
+  typeof PhoneStorySkippedEntrySchema
+>;
+
+export const PhoneStoryEntrySchema = z.discriminatedUnion("kind", [
+  PhoneStoryTextEntrySchema,
+  PhoneStoryDrawingEntrySchema,
+  PhoneStorySkippedEntrySchema,
+]);
+export type PhoneStoryEntry = z.infer<typeof PhoneStoryEntrySchema>;
+
+const PhoneStorylineBaseSchema = z
+  .object({
+    id: IdentifierSchema,
+    entries: z.array(PhoneStoryEntrySchema).min(1).max(4),
+  })
+  .strict();
+
+export const PhoneStorylineSchema = PhoneStorylineBaseSchema.superRefine(
+  (storyline, context) => {
+    const phaseOrder: readonly PhoneActivePhase[] = PHONE_ACTIVE_PHASES;
+    storyline.entries.forEach((entry, index) => {
+      if (entry.phase !== phaseOrder[index]) {
+        context.addIssue({
+          code: "custom",
+          message: "Story entries must follow the Phone phase order.",
+          path: ["entries", index, "phase"],
+        });
+      }
+    });
+  },
+);
+export type PhoneStoryline = z.infer<typeof PhoneStorylineSchema>;
+
+export const PhoneParticipantStatusSchema = z
+  .object({
+    playerId: IdentifierSchema,
+    playerName: nonBlank(
+      VALIDATION_LIMITS.playerName.min,
+      VALIDATION_LIMITS.playerName.max,
+    ),
+    avatar: AvatarConfigSchema,
+    status: z.enum([
+      "working",
+      "submitted",
+      "skipped",
+      "disconnected",
+    ]),
+  })
+  .strict();
+export type PhoneParticipantStatus = z.infer<
+  typeof PhoneParticipantStatusSchema
+>;
+
+const PhoneActivePublicStateBaseSchema = z
+  .object({
+    matchId: IdentifierSchema,
+    phase: PhoneActivePhaseSchema,
+    deadline: MillisecondsTimestampSchema,
+    submittedCount: z.number().int().nonnegative(),
+    totalCount: z.number().int().positive(),
+    participants: z
+      .array(PhoneParticipantStatusSchema)
+      .min(GAME_DEFAULTS.phoneMinPlayers)
+      .max(GAME_DEFAULTS.maxPlayers),
+  })
+  .strict();
+
+export const PhoneActivePublicStateSchema =
+  PhoneActivePublicStateBaseSchema.superRefine((state, context) => {
+    if (state.totalCount !== state.participants.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Phone participant count does not match the status list.",
+        path: ["totalCount"],
+      });
+    }
+    const submittedCount = state.participants.filter(
+      ({ status }) => status === "submitted",
+    ).length;
+    if (state.submittedCount !== submittedCount) {
+      context.addIssue({
+        code: "custom",
+        message: "Phone submission count does not match participant statuses.",
+        path: ["submittedCount"],
+      });
+    }
+    const playerIds = state.participants.map(({ playerId }) => playerId);
+    if (new Set(playerIds).size !== playerIds.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Phone participant statuses must be unique by player.",
+        path: ["participants"],
+      });
+    }
+  });
+export type PhoneActivePublicState = z.infer<
+  typeof PhoneActivePublicStateSchema
+>;
+
+export const PhoneSummaryCursorSchema = z
+  .object({
+    storyIndex: z.number().int().nonnegative(),
+    entryIndex: z.number().int().min(0).max(3),
+  })
+  .strict();
+export type PhoneSummaryCursor = z.infer<
+  typeof PhoneSummaryCursorSchema
+>;
+
+const PhoneSummaryPublicStateBaseSchema = z
+  .object({
+    matchId: IdentifierSchema,
+    phase: z.literal("phone-summary"),
+    storyCount: z
+      .number()
+      .int()
+      .min(GAME_DEFAULTS.phoneMinPlayers)
+      .max(GAME_DEFAULTS.maxPlayers),
+    cursor: PhoneSummaryCursorSchema,
+    storyline: PhoneStorylineSchema,
+  })
+  .strict();
+
+export const PhoneSummaryPublicStateSchema =
+  PhoneSummaryPublicStateBaseSchema.superRefine((summary, context) => {
+    if (summary.cursor.storyIndex >= summary.storyCount) {
+      context.addIssue({
+        code: "custom",
+        message: "Summary story cursor is outside the available stories.",
+        path: ["cursor", "storyIndex"],
+      });
+    }
+    if (summary.storyline.entries.length !== summary.cursor.entryIndex + 1) {
+      context.addIssue({
+        code: "custom",
+        message: "Only the revealed storyline prefix may be included.",
+        path: ["storyline", "entries"],
+      });
+    }
+  });
+export type PhoneSummaryPublicState = z.infer<
+  typeof PhoneSummaryPublicStateSchema
+>;
+
+export const PhoneCompletePublicStateSchema = z
+  .object({
+    matchId: IdentifierSchema,
+    phase: z.literal("final-results"),
+    storyCount: z
+      .number()
+      .int()
+      .min(GAME_DEFAULTS.phoneMinPlayers)
+      .max(GAME_DEFAULTS.maxPlayers),
+  })
+  .strict();
+export type PhoneCompletePublicState = z.infer<
+  typeof PhoneCompletePublicStateSchema
+>;
+
+export const PhonePublicStateSchema = z.union([
+  PhoneActivePublicStateSchema,
+  PhoneSummaryPublicStateSchema,
+  PhoneCompletePublicStateSchema,
+]);
+export type PhonePublicState = z.infer<typeof PhonePublicStateSchema>;
+
+export const PhoneTextPromptSchema = z
+  .object({
+    kind: z.literal("text"),
+    text: nonBlank(
+      VALIDATION_LIMITS.phoneText.min,
+      VALIDATION_LIMITS.phoneText.max,
+    ),
+  })
+  .strict();
+export type PhoneTextPrompt = z.infer<typeof PhoneTextPromptSchema>;
+
+export const PhoneDrawingPromptSchema = z
+  .object({
+    kind: z.literal("drawing"),
+    envelopes: PhoneDrawingEnvelopesSchema,
+  })
+  .strict();
+export type PhoneDrawingPrompt = z.infer<typeof PhoneDrawingPromptSchema>;
+
+export const PhonePromptSchema = z.discriminatedUnion("kind", [
+  PhoneTextPromptSchema,
+  PhoneDrawingPromptSchema,
+]);
+export type PhonePrompt = z.infer<typeof PhonePromptSchema>;
+
+export const PhoneDrawingDraftSchema = z
+  .object({
+    acceptedThroughSequence: ServerSequenceSchema,
+    envelopes: z
+      .array(PhoneDrawingEnvelopeSchema)
+      .max(VALIDATION_LIMITS.drawingLogOperations),
+  })
+  .strict();
+export type PhoneDrawingDraft = z.infer<typeof PhoneDrawingDraftSchema>;
+
+export const PhonePrivateStateSchema = z
+  .object({
+    matchId: IdentifierSchema,
+    phase: PhoneActivePhaseSchema,
+    assignmentId: IdentifierSchema,
+    prompt: PhonePromptSchema.nullable(),
+    skippedEntryCount: z.number().int().nonnegative(),
+    draft: PhoneDrawingDraftSchema.nullable(),
+    submitted: z.boolean(),
+  })
+  .strict();
+export type PhonePrivateState = z.infer<typeof PhonePrivateStateSchema>;
+
+const RoomSnapshotCommonFields = {
+  code: RoomCodeSchema,
+  revision: RevisionSchema,
+  players: z.array(PlayerPublicSchema).max(GAME_DEFAULTS.maxPlayers),
+  chat: z.array(ChatMessageSchema).max(200),
+  serverTime: MillisecondsTimestampSchema,
+  createdAt: MillisecondsTimestampSchema,
+  expiresAt: MillisecondsTimestampSchema,
+} as const;
+
+export const ClassicRoomSnapshotSchema = z
+  .object({
+    ...RoomSnapshotCommonFields,
+    mode: z.literal("classic"),
+    phase: ClassicRoomPhaseSchema,
+    settings: ClassicRoomSettingsSchema,
+    round: RoundPublicSchema.nullable(),
+    drawing: ReplayStateSchema.nullable(),
+  })
+  .strict();
+export type ClassicRoomSnapshot = z.infer<
+  typeof ClassicRoomSnapshotSchema
+>;
+
+export const ProRoomSnapshotSchema = z
+  .object({
+    ...RoomSnapshotCommonFields,
+    mode: z.literal("pro"),
+    phase: ClassicRoomPhaseSchema,
+    settings: ProRoomSettingsSchema,
+    round: RoundPublicSchema.nullable(),
+    drawing: ReplayStateSchema.nullable(),
+  })
+  .strict();
+export type ProRoomSnapshot = z.infer<typeof ProRoomSnapshotSchema>;
+
+export const PhoneLobbyRoomSnapshotSchema = z
+  .object({
+    ...RoomSnapshotCommonFields,
+    mode: z.literal("phone"),
+    phase: z.literal("lobby"),
+    settings: PhoneRoomSettingsSchema,
+    round: z.null(),
+    drawing: z.null(),
+    phone: z.null(),
+  })
+  .strict();
+export type PhoneLobbyRoomSnapshot = z.infer<
+  typeof PhoneLobbyRoomSnapshotSchema
+>;
+
+export const PhoneActiveRoomSnapshotSchema = z
+  .object({
+    ...RoomSnapshotCommonFields,
+    mode: z.literal("phone"),
+    phase: PhoneActivePhaseSchema,
+    settings: PhoneRoomSettingsSchema,
+    round: z.null(),
+    drawing: z.null(),
+    phone: PhoneActivePublicStateSchema,
+  })
+  .strict();
+export type PhoneActiveRoomSnapshot = z.infer<
+  typeof PhoneActiveRoomSnapshotSchema
+>;
+
+export const PhoneSummaryRoomSnapshotSchema = z
+  .object({
+    ...RoomSnapshotCommonFields,
+    mode: z.literal("phone"),
+    phase: z.literal("phone-summary"),
+    settings: PhoneRoomSettingsSchema,
+    round: z.null(),
+    drawing: z.null(),
+    phone: PhoneSummaryPublicStateSchema,
+  })
+  .strict();
+export type PhoneSummaryRoomSnapshot = z.infer<
+  typeof PhoneSummaryRoomSnapshotSchema
+>;
+
+export const PhoneCompleteRoomSnapshotSchema = z
+  .object({
+    ...RoomSnapshotCommonFields,
+    mode: z.literal("phone"),
+    phase: z.literal("final-results"),
+    settings: PhoneRoomSettingsSchema,
+    round: z.null(),
+    drawing: z.null(),
+    phone: PhoneCompletePublicStateSchema,
+  })
+  .strict();
+export type PhoneCompleteRoomSnapshot = z.infer<
+  typeof PhoneCompleteRoomSnapshotSchema
+>;
+
+export const PhoneRoomSnapshotSchema = z.union([
+  PhoneLobbyRoomSnapshotSchema,
+  PhoneActiveRoomSnapshotSchema,
+  PhoneSummaryRoomSnapshotSchema,
+  PhoneCompleteRoomSnapshotSchema,
+]);
+export type PhoneRoomSnapshot = z.infer<typeof PhoneRoomSnapshotSchema>;
+
+const normalizeLegacyRoomSnapshot = (value: unknown): unknown => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return value;
+  }
+
+  const settings = normalizeLegacyRoomSettings(
+    "settings" in value ? value.settings : undefined,
+  );
+  const settingsMode =
+    typeof settings === "object" &&
+    settings !== null &&
+    !Array.isArray(settings) &&
+    "mode" in settings
+      ? settings.mode
+      : undefined;
+
+  return {
+    ...value,
+    mode: "mode" in value ? value.mode : (settingsMode ?? "classic"),
+    settings,
+  };
+};
+
+export const RoomSnapshotSchema = z.preprocess(
+  normalizeLegacyRoomSnapshot,
+  z.union([
+    ClassicRoomSnapshotSchema,
+    ProRoomSnapshotSchema,
+    PhoneLobbyRoomSnapshotSchema,
+    PhoneActiveRoomSnapshotSchema,
+    PhoneSummaryRoomSnapshotSchema,
+    PhoneCompleteRoomSnapshotSchema,
+  ]),
+);
 export type RoomSnapshot = z.infer<typeof RoomSnapshotSchema>;
 
-export const PlayerRoomSnapshotSchema = RoomSnapshotSchema.extend({
+export const ClassicPlayerRoomSnapshotSchema =
+  ClassicRoomSnapshotSchema.extend({
+    selfPlayerId: IdentifierSchema,
+    privateRound: RoundPrivateSchema.nullable(),
+  }).strict();
+export type ClassicPlayerRoomSnapshot = z.infer<
+  typeof ClassicPlayerRoomSnapshotSchema
+>;
+
+export const ProPlayerRoomSnapshotSchema = ProRoomSnapshotSchema.extend({
   selfPlayerId: IdentifierSchema,
   privateRound: RoundPrivateSchema.nullable(),
 }).strict();
+export type ProPlayerRoomSnapshot = z.infer<
+  typeof ProPlayerRoomSnapshotSchema
+>;
+
+export const PhoneLobbyPlayerRoomSnapshotSchema =
+  PhoneLobbyRoomSnapshotSchema.extend({
+    selfPlayerId: IdentifierSchema,
+    privatePhone: z.null(),
+  }).strict();
+
+export const PhoneActivePlayerRoomSnapshotSchema =
+  PhoneActiveRoomSnapshotSchema.extend({
+    selfPlayerId: IdentifierSchema,
+    privatePhone: PhonePrivateStateSchema.nullable(),
+  }).strict();
+
+export const PhoneSummaryPlayerRoomSnapshotSchema =
+  PhoneSummaryRoomSnapshotSchema.extend({
+    selfPlayerId: IdentifierSchema,
+    privatePhone: z.null(),
+  }).strict();
+
+export const PhoneCompletePlayerRoomSnapshotSchema =
+  PhoneCompleteRoomSnapshotSchema.extend({
+    selfPlayerId: IdentifierSchema,
+    privatePhone: z.null(),
+  }).strict();
+
+export const PhonePlayerRoomSnapshotSchema = z.union([
+  PhoneLobbyPlayerRoomSnapshotSchema,
+  PhoneActivePlayerRoomSnapshotSchema,
+  PhoneSummaryPlayerRoomSnapshotSchema,
+  PhoneCompletePlayerRoomSnapshotSchema,
+]);
+export type PhonePlayerRoomSnapshot = z.infer<
+  typeof PhonePlayerRoomSnapshotSchema
+>;
+
+export const PlayerRoomSnapshotSchema = z.preprocess(
+  normalizeLegacyRoomSnapshot,
+  z.union([
+    ClassicPlayerRoomSnapshotSchema,
+    ProPlayerRoomSnapshotSchema,
+    PhoneLobbyPlayerRoomSnapshotSchema,
+    PhoneActivePlayerRoomSnapshotSchema,
+    PhoneSummaryPlayerRoomSnapshotSchema,
+    PhoneCompletePlayerRoomSnapshotSchema,
+  ]),
+);
 export type PlayerRoomSnapshot = z.infer<typeof PlayerRoomSnapshotSchema>;
 
 export const ErrorCodeSchema = z.enum(ERROR_CODES);
@@ -451,6 +1016,13 @@ export const MutationMetaSchema = z
   })
   .strict();
 export type MutationMeta = z.infer<typeof MutationMetaSchema>;
+
+export const PhoneMutationMetaSchema = z
+  .object({
+    idempotencyId: IdempotencyIdSchema,
+  })
+  .strict();
+export type PhoneMutationMeta = z.infer<typeof PhoneMutationMetaSchema>;
 
 export const SessionCredentialsSchema = z
   .object({
@@ -602,6 +1174,65 @@ export const DrawingBatchRequestSchema = z
   .strict();
 export type DrawingBatchRequest = z.infer<typeof DrawingBatchRequestSchema>;
 
+export const PhoneTextSubmitRequestSchema = z
+  .object({
+    mutation: PhoneMutationMetaSchema,
+    assignmentId: IdentifierSchema,
+    text: nonBlank(
+      VALIDATION_LIMITS.phoneText.min,
+      VALIDATION_LIMITS.phoneText.max,
+    ),
+  })
+  .strict();
+export type PhoneTextSubmitRequest = z.infer<
+  typeof PhoneTextSubmitRequestSchema
+>;
+
+export const PhoneDrawingBatchRequestSchema = z
+  .object({
+    mutation: PhoneMutationMetaSchema,
+    assignmentId: IdentifierSchema,
+    strokeId: IdentifierSchema,
+    chunkId: z.number().int().nonnegative(),
+    operations: z
+      .array(DrawingOpSchema)
+      .min(VALIDATION_LIMITS.drawingBatchOperations.min)
+      .max(VALIDATION_LIMITS.drawingBatchOperations.max),
+  })
+  .strict();
+export type PhoneDrawingBatchRequest = z.infer<
+  typeof PhoneDrawingBatchRequestSchema
+>;
+
+export const PhoneDrawingSubmitRequestSchema = z
+  .object({
+    mutation: PhoneMutationMetaSchema,
+    assignmentId: IdentifierSchema,
+  })
+  .strict();
+export type PhoneDrawingSubmitRequest = z.infer<
+  typeof PhoneDrawingSubmitRequestSchema
+>;
+
+export const PhoneSummaryNavigationActionSchema = z.enum([
+  "previous",
+  "next",
+  "finish",
+]);
+export type PhoneSummaryNavigationAction = z.infer<
+  typeof PhoneSummaryNavigationActionSchema
+>;
+
+export const PhoneSummaryNavigateRequestSchema = z
+  .object({
+    mutation: PhoneMutationMetaSchema,
+    action: PhoneSummaryNavigationActionSchema,
+  })
+  .strict();
+export type PhoneSummaryNavigateRequest = z.infer<
+  typeof PhoneSummaryNavigateRequestSchema
+>;
+
 export const ChatSendRequestSchema = z
   .object({
     mutation: MutationMetaSchema,
@@ -669,6 +1300,52 @@ export const DrawingBatchResultSchema = z
   .strict();
 export type DrawingBatchResult = z.infer<typeof DrawingBatchResultSchema>;
 
+export const PhoneTextSubmitResultSchema = z
+  .object({
+    revision: RevisionSchema,
+    assignmentId: IdentifierSchema,
+    submittedAt: MillisecondsTimestampSchema,
+  })
+  .strict();
+export type PhoneTextSubmitResult = z.infer<
+  typeof PhoneTextSubmitResultSchema
+>;
+
+export const PhoneDrawingBatchResultSchema = z
+  .object({
+    revision: RevisionSchema,
+    assignmentId: IdentifierSchema,
+    acceptedThroughSequence: ServerSequenceSchema,
+  })
+  .strict();
+export type PhoneDrawingBatchResult = z.infer<
+  typeof PhoneDrawingBatchResultSchema
+>;
+
+export const PhoneDrawingSubmitResultSchema = z
+  .object({
+    revision: RevisionSchema,
+    assignmentId: IdentifierSchema,
+    submittedAt: MillisecondsTimestampSchema,
+  })
+  .strict();
+export type PhoneDrawingSubmitResult = z.infer<
+  typeof PhoneDrawingSubmitResultSchema
+>;
+
+export const PhoneSummaryNavigateResultSchema = z
+  .object({
+    revision: RevisionSchema,
+    phone: z.union([
+      PhoneSummaryPublicStateSchema,
+      PhoneCompletePublicStateSchema,
+    ]),
+  })
+  .strict();
+export type PhoneSummaryNavigateResult = z.infer<
+  typeof PhoneSummaryNavigateResultSchema
+>;
+
 export const RoomRevisionEventSchema = z
   .object({
     revision: RevisionSchema,
@@ -723,6 +1400,18 @@ export const ScoreUpdatedEventSchema = RoomRevisionEventSchema.extend({
   changes: z.array(ScoreChangeSchema),
 }).strict();
 export type ScoreUpdatedEvent = z.infer<typeof ScoreUpdatedEventSchema>;
+
+export const PhoneStateEventSchema = RoomRevisionEventSchema.extend({
+  phone: PhonePublicStateSchema,
+}).strict();
+export type PhoneStateEvent = z.infer<typeof PhoneStateEventSchema>;
+
+export const PhonePrivateStateEventSchema = RoomRevisionEventSchema.extend({
+  privatePhone: PhonePrivateStateSchema.nullable(),
+}).strict();
+export type PhonePrivateStateEvent = z.infer<
+  typeof PhonePrivateStateEventSchema
+>;
 
 export const DrawingBroadcastSchema = RoomRevisionEventSchema.extend({
   envelopes: z.array(DrawingEnvelopeSchema),

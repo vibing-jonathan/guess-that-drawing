@@ -9,3 +9,4 @@ test-results
 *.tsbuildinfo
 .vite
 .cache
+design/open-design/.od-skills/

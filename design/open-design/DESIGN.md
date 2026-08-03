@@ -704,7 +704,7 @@ All buttons are at least `44px` high, have a visible text label unless the compa
 
 ### 9.4 Create room
 
-- A short step flow: room basics, game settings, theme, review. Avoid a long dashboard form.
+- A short step flow: Profile, Mode & settings, Theme, Review. Phone Mode skips Theme and uses Profile, Mode & settings, Review. Avoid a long dashboard form.
 - Each step has a clear heading, progress text such as “Step 2 of 4,” and Back/Continue controls.
 - Desktop: form plus concise live summary. Mobile: single column; summary collapses after current fields.
 - Defaults are visible and editable. Do not hide consequential rules behind an info icon.
@@ -902,7 +902,92 @@ All buttons are at least `44px` high, have a visible text label unless the compa
 
 ---
 
-## 14. Production acceptance checklist
+## 14. Game modes and synchronized Phone Mode
+
+### 14.1 Mode selection and setup flow
+
+- Step 2 is always “Mode & settings” and presents three real radio-card choices: Classic, Pro, and Phone. Each card includes a name, plain-language rule summary, selected text/check, visible focus, and full-card target of at least `44px`.
+- Classic uses the established take-turns drawing and guessing model. Step 2 contains exactly these non-theme room settings: Player cap, Drawing cycles, Turn time, and Word selection time. Theme remains the separate step 3.
+- Pro uses the Classic turn structure and the same separate Theme step. Step 2 contains Player cap, Drawing cycles, Turn time, and Word selection time, plus the visible rule “Incorrect guess: −25 points.” Do not hide this consequence in help text or a tooltip.
+- Phone uses a three-step flow: Profile → Mode & settings → Review. It skips Theme entirely; back/continue navigation, progress semantics, and review copy must never imply that a theme is pending.
+- Phone settings are Player cap (`4–12`), Text timer (`30–120` seconds, default `60`), Drawing timer (`60–180` seconds, default `120`), and a fixed four-link chain. Text and drawing timers are independent authoritative settings. The review states explicitly say that player sentences replace theme prompts and that chat and scoring are off.
+- Classic and Pro use four-step progress with Theme before Review. Every mode gets its own review state and mode-specific summary before room creation.
+- Changing the selected mode updates conditional settings, step count, summary, and legal next action together. Hidden mode fields are removed from submission and the accessibility tree rather than merely concealed visually.
+- Rooms are private by code only. Setup presents this as informational copy, not a setting. There is no “Who can join?” control, host-approval option, or approval workflow.
+
+### 14.2 Mode-aware lobby
+
+- The lobby heading includes a persistent text mode badge. Color and icon may reinforce the badge but cannot replace the mode name.
+- Classic lobby settings show player cap, drawing cycles, turn time, word selection time, and the selected theme.
+- Pro lobby settings show the Classic values plus “Incorrect guess: −25 points” for both host and guests.
+- Phone lobby settings show player cap, text timer, drawing timer, the four-link sequence, and “Theme, chat & scores: off.” Defaults are `60` seconds for text and `120` seconds for drawing. Player rows in Phone Mode never include scores.
+- Phone Mode requires at least four synchronized players. Before the server confirms the fourth player, “Start” is disabled and the lobby states the current count, the minimum, and the recovery action (“Invite one more player”).
+- A host can edit only the settings legal for the selected mode. Guests receive the same values as a read-only definition list and a clear waiting-for-host state.
+
+### 14.3 Pro incorrect-guess feedback
+
+- The server validates each submitted Pro guess before the client changes score.
+- An incorrect guess remains visible in the public room chat as a normal guess with its submitting player and timestamp.
+- The server applies `-min(25, currentScore)`, so the authoritative score never falls below zero. The resulting score change is public through the normal player/score update.
+- Only the penalty feedback is private to the submitting player. It appears in that player’s action region with `CircleX`, “Incorrect guess,” the actual signed score delta, and the previous/resulting totals when authoritative. At the zero floor, the actual delta is `0`.
+- Negative penalty feedback uses coral/danger semantics plus icon and text. Do not rely on color alone.
+- Correct guesses remain suppressed and are replaced by the public “Name guessed the word” event. Close guesses remain private and are not published. Existing invalid, duplicate, rate-limited, and post-correct submission behavior remains unchanged.
+
+### 14.4 Phone active phases
+
+Phone Mode runs four simultaneous, server-synchronized phases:
+
+1. **Write a sentence.** Every player writes one drawable sentence and submits privately.
+2. **Draw an assigned prompt.** Every player receives a sentence from another chain and draws it on the standard canvas.
+3. **Guess an assigned drawing.** Every player receives a drawing and writes the sentence they believe it represents.
+4. **Draw an assigned guess.** Every player receives the phase-three sentence and creates the final drawing.
+
+- The Write and Guess text tasks accept `1–180` characters after trimming leading and trailing whitespace. Both use a visible trimmed-character counter, a visible label, help text that states the range, `maxlength="180"`, and submission validation against the trimmed value.
+- The active header says “Phone Mode,” names the task, and exposes “Phase N of 4” in visible text and an accessible progress list.
+- Every player sees the same authoritative server deadline for the active phase. Phases 1 and 3 use the configured Text timer; phases 2 and 4 use the independently configured Drawing timer. The timer names which setting is active, shows a filled track, and never resets or extends from local focus, reload, backgrounding, or reconnect alone.
+- Public player cards use only Working, Submitted, Skipped, or Disconnected, with icon and text. The phase heading and task copy describe whether players are writing, guessing, or drawing. A local connection banner may say Reconnecting, but that player’s synchronized public roster card says Disconnected. Phone status rows contain no score or rank.
+- Assigned prompts and drawings are private. Their originating author is absent from visible copy, accessible names, DOM attributes, analytics payloads, tooltips, and network responses available to the recipient until summary.
+- Submission locks the current private item and replaces the primary action with a Submitted state that explains the room will advance only on the authoritative phase transition.
+- A skipped contribution is informational. The next contributor sees the most recent valid prompt or drawing plus a persistent visible skipped-step warning and count. Writing or drawing remains enabled, and work continues under the current authoritative phase deadline with no reset or extension.
+- Reconnect preserves the local draft or last synchronized canvas, disables submission, resynchronizes assignment plus deadline, and enables submission only after both match the room.
+- Phone Mode has no public chat, guess stream, score rows, rank, leaderboard, or score-shaped empty space during active phases.
+- Drawing phases continue to use the established white canvas, tool semantics, confirmation behavior, and canvas-first hierarchy. Writing and guessing phases treat the single focused authoring surface as the dominant play object rather than replacing it with a dashboard.
+
+### 14.5 Phone story summary
+
+- Host and guest views reveal exactly one item at a time in this order: sentence → drawing → sentence → drawing.
+- Attribution appears for the currently revealed item during summary only, using “Name wrote,” “Name drew,” or “Name guessed.” Earlier active-phase surfaces remain anonymous.
+- The host owns Previous, Next item, and Finish story controls. Previous is disabled at the first item; Finish replaces Next only at the fourth item.
+- The server broadcasts the host’s current story and item index. Guest views follow that index, expose a calm “Waiting for host” status, and provide no local reveal controls.
+- The summary progress list names item type and exposes “Item N of 4.” Moving backward does not change the stored chain or attribution.
+- Reconnecting during summary preserves the last confirmed item and waits for the server’s current index before enabling host controls or updating a guest view.
+
+### 14.6 Phone completion and rematch
+
+- Completion states celebrate the finished stories without selecting a winner. Do not render a leaderboard, rank, score, podium, winner copy, or competitive metric.
+- Host completion provides Play again, an optional Change settings action that returns to the Phone lobby/settings, and Leave room. Only the host can trigger the rematch.
+- Guest completion provides a clear Waiting for host state and Leave room. Guests have no rematch action, response control, participant list, or response status.
+- Every Phone completion state includes Leave room.
+- Rematch retains the room and players when possible, clears prior private chain content, and begins again at phase 1 with new assignments.
+
+### 14.7 Responsive Phone behavior
+
+- At `1440px`, active Phone phases use a narrow player-status column and a dominant central play column. They never add a chat/score sidebar.
+- At `1024px` and `768px`, the play column comes first in DOM and visual priority; player statuses follow as a full-width supporting region without shrinking canvas or controls.
+- At `390px`, phase/task/timer remain visible before the dominant play surface. The four-step progress reflows without horizontal scrolling, drawing tools use the established safe-area dock, and the primary submit/waiting state remains reachable without covering content.
+- At `844×390` landscape, supporting roster content is removed from the immediate play viewport, compact phase progress remains visible, and the canvas or authoring surface receives the available height. Fixed drawing tools reserve content space.
+- Setup, lobby, active phases, story summary, and completion have no horizontal overflow at `390`, `768`, `1024`, or `1440px`. They also remain usable at the broader acceptance widths in Section 15.
+
+### 14.8 Phone accessibility and privacy
+
+- Phase progress, story progress, private-assignment labels, authoritative timer, submission result, reconnect, persistent skipped-step warning/count, and guest waiting state all have text equivalents.
+- Live regions announce a phase transition, successful submission, loss/restoration of synchronization, and host reveal change once. They do not announce each timer tick, drawing stroke, skipped-count repaint, or player-status update.
+- Phone authoring controls meet the existing `44×44px` target and visible-focus contracts. Textareas and inputs retain visible labels; canvas limitations remain documented as in Section 11.5.
+- The absence of author attribution before summary is a data-minimization requirement, not only a visual treatment.
+
+---
+
+## 15. Production acceptance checklist
 
 ### Visual system
 
@@ -919,6 +1004,16 @@ All buttons are at least `44px` high, have a visible text label unless the compa
 - [ ] Close-guess feedback is private in both the UI tree and network/state model.
 - [ ] Drawer, guesser, guessed, selecting, reconnecting, turn-result, and final-result states have one obvious legal next action.
 - [ ] Invalid, expired, full, kicked, and outage states have specific copy and recovery actions.
+- [ ] Setup step 2 is named “Mode & settings” everywhere. Classic and Pro expose Player cap, Drawing cycles, Turn time, and Word selection time before the separate Theme step.
+- [ ] Phone setup, review, and lobby expose independent Text (`30–120`, default `60`) and Drawing (`60–180`, default `120`) timers; Phone uses three steps and never renders Theme.
+- [ ] No setup or lobby surface exposes room approval controls; rooms remain private by code only.
+- [ ] Pro incorrect guesses remain public chat guesses; the server applies `-min(25, currentScore)` with a zero floor, publishes the resulting player/score update, and returns only the actual signed penalty delta privately. Correct, close, and post-correct behavior remains unchanged.
+- [ ] Phone Write and Guess accept `1–180` trimmed characters, expose visible counters and range help, and reject empty trimmed submissions.
+- [ ] Phone public roster cards use only Working, Submitted, Skipped, or Disconnected; local Reconnecting copy never changes the public status contract.
+- [ ] A skipped Phone contribution keeps authoring enabled, shows the latest valid prompt or drawing plus a persistent warning/count, and preserves the existing authoritative deadline without reset or extension.
+- [ ] Phone phases 1–4 expose authoritative timing, private anonymous assignment, submission, skipped-step continuity, and reconnect behavior without chat or scores.
+- [ ] Phone host/guest summaries remain synchronized and reveal one sentence/drawing item at a time with attribution only in summary.
+- [ ] Phone completion contains no leaderboard, rank, score, winner, podium, participant list, or response status; only the host can Play again, while every player can Leave room.
 
 ### Responsive behavior
 
@@ -928,6 +1023,7 @@ All buttons are at least `44px` high, have a visible text label unless the compa
 - [ ] Mobile uses canvas-first status, safe-area bottom dock/composer, and accessible players/chat sheets or tabs.
 - [ ] Portrait and landscape preserve canvas dominance.
 - [ ] Home, profile, avatar, create, join, theme editor, lobby, game, and results follow their documented compositions.
+- [ ] Phone setup, lobby, all four phases, skipped-step text/drawing states, summary, and completion pass at `1440`, `1024`, `768`, `390`, and `844×390` without overlap, clipping, long-prompt escape, hidden controls, or horizontal overflow.
 
 ### Accessibility and motion
 

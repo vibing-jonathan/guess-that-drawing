@@ -75,7 +75,11 @@ describe("Socket.IO contract boundary", () => {
       throw new Error(created.error.message);
     }
     expect(SessionEstablishedSchema.safeParse(created.data).success).toBe(true);
-    expect(created.data.snapshot.privateRound).toBeNull();
+    expect(
+      "privateRound" in created.data.snapshot
+        ? created.data.snapshot.privateRound
+        : null,
+    ).toBeNull();
     const credentials = created.data.credentials;
     const roomCode = created.data.snapshot.code;
 
@@ -289,6 +293,165 @@ describe("Socket.IO contract boundary", () => {
     } finally {
       host.disconnect();
       guest.disconnect();
+      await runtime.close();
+    }
+  });
+
+  it("validates and acknowledges the private Phone mutation events", async () => {
+    const persistence = new MemoryGamePersistence();
+    await persistence.connect();
+    const runtime = await buildApplication({
+      config: socketConfig,
+      persistence,
+    });
+    const address = await runtime.app.listen({
+      host: "127.0.0.1",
+      port: 0,
+    });
+    const clients = Array.from({ length: 4 }, () =>
+      createClient(address, {
+        forceNew: true,
+        transports: ["websocket"],
+      }) as TestClient,
+    );
+    const host = clients[0]!;
+    try {
+      await Promise.all(clients.map((client) => onceConnected(client)));
+      const created = await host.emitWithAck("room:create", {
+        mutation: { idempotencyId: "phone-socket-create" },
+        profile: { name: "Phone Host", avatar: DEFAULT_AVATAR },
+        settings: {
+          mode: "phone",
+          maxPlayers: 4,
+          textSeconds: 30,
+          drawingSeconds: 60,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        throw new Error(created.error.message);
+      }
+      for (let index = 1; index < clients.length; index += 1) {
+        const joined = await clients[index]!.emitWithAck("room:join", {
+          mutation: {
+            idempotencyId: `phone-socket-join-${index}`,
+          },
+          code: created.data.snapshot.code,
+          profile: {
+            name: `Phone Player ${index}`,
+            avatar: DEFAULT_AVATAR,
+          },
+        });
+        expect(joined.ok).toBe(true);
+      }
+      const started = await host.emitWithAck("match:start", {
+        mutation: { idempotencyId: "phone-socket-start" },
+      });
+      expect(started.ok).toBe(true);
+
+      const writingAssignments: string[] = [];
+      for (let index = 0; index < clients.length; index += 1) {
+        const snapshotAck = await clients[index]!.emitWithAck(
+          "snapshot:request",
+          {},
+        );
+        expect(snapshotAck.ok).toBe(true);
+        if (
+          !snapshotAck.ok ||
+          snapshotAck.data.mode !== "phone" ||
+          !snapshotAck.data.privatePhone
+        ) {
+          throw new Error("Missing private Phone writing assignment.");
+        }
+        writingAssignments.push(
+          snapshotAck.data.privatePhone.assignmentId,
+        );
+        const submitted = await clients[index]!.emitWithAck(
+          "phone:text:submit",
+          {
+            mutation: {
+              idempotencyId: `phone-socket-text-${index}`,
+            },
+            assignmentId:
+              snapshotAck.data.privatePhone.assignmentId,
+            text: `Socket sentence ${index}`,
+          },
+        );
+        expect(submitted.ok).toBe(true);
+        if (submitted.ok) {
+          expect(submitted.data.assignmentId).toBe(
+            writingAssignments[index],
+          );
+        }
+      }
+
+      const publicDrawingEvents: DrawingBroadcast[] = [];
+      clients[1]!.on("drawing:batch", (event) => {
+        publicDrawingEvents.push(event);
+      });
+      for (let index = 0; index < clients.length; index += 1) {
+        const snapshotAck = await clients[index]!.emitWithAck(
+          "snapshot:request",
+          {},
+        );
+        if (
+          !snapshotAck.ok ||
+          snapshotAck.data.mode !== "phone" ||
+          !snapshotAck.data.privatePhone
+        ) {
+          throw new Error("Missing private Phone drawing assignment.");
+        }
+        const assignmentId =
+          snapshotAck.data.privatePhone.assignmentId;
+        const operationId = `phone-socket-op-${index}`;
+        const batch = await clients[index]!.emitWithAck(
+          "phone:drawing:batch",
+          {
+            mutation: {
+              idempotencyId: `phone-socket-batch-${index}`,
+            },
+            assignmentId,
+            strokeId: operationId,
+            chunkId: 0,
+            operations: [{
+              opId: operationId,
+              kind: "stroke",
+              tool: "brush",
+              style: { color: "#123456", size: 8, fill: false },
+              points: [{ x: 20 + index, y: 30 + index }],
+            }],
+          },
+        );
+        expect(batch.ok).toBe(true);
+        const submitted = await clients[index]!.emitWithAck(
+          "phone:drawing:submit",
+          {
+            mutation: {
+              idempotencyId: `phone-socket-draw-submit-${index}`,
+            },
+            assignmentId,
+          },
+        );
+        expect(submitted.ok).toBe(true);
+      }
+      await delay(20);
+      expect(publicDrawingEvents).toHaveLength(0);
+
+      const invalidNavigation = await (
+        host as unknown as {
+          emitWithAck(event: string, request: unknown): Promise<unknown>;
+        }
+      ).emitWithAck("phone:summary:navigate", {
+        mutation: { idempotencyId: "phone-invalid-summary" },
+        action: "later",
+      });
+      expect(invalidNavigation).toMatchObject({
+        ok: false,
+        error: { code: "INVALID_PAYLOAD" },
+      });
+    } finally {
+      clients.forEach((client) => client.disconnect());
+      await delay(20);
       await runtime.close();
     }
   });

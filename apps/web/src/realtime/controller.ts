@@ -15,6 +15,12 @@ import type {
   LeaveRoomRequest,
   PlayerProfile,
   PlayerRoomSnapshot,
+  PhoneDrawingBatchRequest,
+  PhoneDrawingBatchResult,
+  PhoneDrawingSubmitResult,
+  PhoneSummaryNavigateResult,
+  PhoneSummaryNavigationAction,
+  PhoneTextSubmitResult,
   ReplayState,
   RoomMutationResult,
   RoomSettings,
@@ -62,6 +68,10 @@ type CreateRoomInput = Omit<CreateRoomRequest, "mutation">;
 type JoinRoomInput = Omit<JoinRoomRequest, "mutation">;
 type UpdateSettingsInput = Omit<UpdateSettingsRequest, "mutation">;
 type DrawingBatchInput = Omit<DrawingBatchRequest, "mutation">;
+type PhoneDrawingBatchInput = Omit<
+  PhoneDrawingBatchRequest,
+  "mutation"
+>;
 
 type DrawingSource = "live" | "replay" | "snapshot";
 
@@ -183,7 +193,12 @@ export class RoomRealtimeController {
     this.started = true;
     this.stopped = false;
     this.bindSocket();
+    this.bindNetworkStatus();
     this.store.getState().setConnection("connecting");
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      this.handleBrowserOffline();
+      return;
+    }
     if (this.socket.connected) {
       this.handleConnect();
     } else {
@@ -198,6 +213,7 @@ export class RoomRealtimeController {
     this.started = false;
     this.stopped = true;
     this.unbindSocket();
+    this.unbindNetworkStatus();
     const error = new RealtimeRequestError(
       "CONTROLLER_STOPPED",
       "The realtime controller was stopped.",
@@ -386,6 +402,48 @@ export class RoomRealtimeController {
       .getState()
       .acknowledgeRevision(ack.data.revision);
     this.handleApplyResult(result);
+    return ack.data;
+  }
+
+  async submitPhoneText(
+    assignmentId: string,
+    text: string,
+  ): Promise<PhoneTextSubmitResult> {
+    const ack = await this.emitAck("phone:text:submit", {
+      mutation: createMutationMeta(),
+      assignmentId,
+      text,
+    });
+    return ack.data;
+  }
+
+  async sendPhoneDrawingBatch(
+    input: PhoneDrawingBatchInput,
+  ): Promise<PhoneDrawingBatchResult> {
+    const ack = await this.emitAck("phone:drawing:batch", {
+      ...input,
+      mutation: createMutationMeta(),
+    });
+    return ack.data;
+  }
+
+  async submitPhoneDrawing(
+    assignmentId: string,
+  ): Promise<PhoneDrawingSubmitResult> {
+    const ack = await this.emitAck("phone:drawing:submit", {
+      mutation: createMutationMeta(),
+      assignmentId,
+    });
+    return ack.data;
+  }
+
+  async navigatePhoneSummary(
+    action: PhoneSummaryNavigationAction,
+  ): Promise<PhoneSummaryNavigateResult> {
+    const ack = await this.emitAck("phone:summary:navigate", {
+      mutation: createMutationMeta(),
+      action,
+    });
     return ack.data;
   }
 
@@ -775,6 +833,29 @@ export class RoomRealtimeController {
     }
   };
 
+  private readonly handleBrowserOffline = () => {
+    if (!this.started) {
+      return;
+    }
+    this.store
+      .getState()
+      .setConnection("offline", "Offline. Reconnect to continue.");
+  };
+
+  private readonly handleBrowserOnline = () => {
+    if (!this.started) {
+      return;
+    }
+    this.store
+      .getState()
+      .setConnection("connecting", "Back online. Reconnecting…");
+    if (this.socket.connected) {
+      this.handleConnect();
+    } else {
+      this.socket.connect();
+    }
+  };
+
   private readonly handleDisconnect = (reason: string) => {
     if (!this.started) {
       return;
@@ -979,6 +1060,20 @@ export class RoomRealtimeController {
       );
     };
 
+  private readonly handlePhoneState: ServerToClientEvents["phone:state"] =
+    (event) => {
+      this.handleApplyResult(
+        this.store.getState().applyPhoneState(event),
+      );
+    };
+
+  private readonly handlePhonePrivate: ServerToClientEvents["phone:private"] =
+    (event) => {
+      this.handleApplyResult(
+        this.store.getState().applyPhonePrivate(event),
+      );
+    };
+
   private readonly handleSnapshotRequired: ServerToClientEvents["snapshot:required"] =
     (event) => {
       const roomRevision = this.store.getState().room?.revision ?? 0;
@@ -1001,6 +1096,22 @@ export class RoomRealtimeController {
         details: null,
       });
     };
+
+  private bindNetworkStatus(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.addEventListener("offline", this.handleBrowserOffline);
+    window.addEventListener("online", this.handleBrowserOnline);
+  }
+
+  private unbindNetworkStatus(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.removeEventListener("offline", this.handleBrowserOffline);
+    window.removeEventListener("online", this.handleBrowserOnline);
+  }
 
   private bindSocket(): void {
     this.socket.on("connect", this.handleConnect);
@@ -1038,6 +1149,8 @@ export class RoomRealtimeController {
     this.socket.on("guess:feedback", this.handleGuessFeedback);
     this.socket.on("guess:correct", this.handleCorrectGuess);
     this.socket.on("score:updated", this.handleScoreUpdated);
+    this.socket.on("phone:state", this.handlePhoneState);
+    this.socket.on("phone:private", this.handlePhonePrivate);
     this.socket.on(
       "snapshot:required",
       this.handleSnapshotRequired,
@@ -1081,6 +1194,8 @@ export class RoomRealtimeController {
     this.socket.off("guess:feedback", this.handleGuessFeedback);
     this.socket.off("guess:correct", this.handleCorrectGuess);
     this.socket.off("score:updated", this.handleScoreUpdated);
+    this.socket.off("phone:state", this.handlePhoneState);
+    this.socket.off("phone:private", this.handlePhonePrivate);
     this.socket.off(
       "snapshot:required",
       this.handleSnapshotRequired,

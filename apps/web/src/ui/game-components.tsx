@@ -1,6 +1,7 @@
 import type {
+  ClassicPlayerRoomSnapshot,
   GuessFeedback,
-  PlayerRoomSnapshot,
+  ProPlayerRoomSnapshot,
   RoundPublic,
 } from "@gtd/contracts";
 import {
@@ -13,6 +14,7 @@ import {
 
 import { roomController } from "../realtime/runtime";
 import { useRoomStore } from "../state/room-store";
+import { playGameSound } from "./game-audio";
 import {
   Banner,
   Button,
@@ -22,6 +24,10 @@ import {
   PlayersPanel,
   StatusBadge,
 } from "./primitives";
+
+type ClassicGameRoom =
+  | ClassicPlayerRoomSnapshot
+  | ProPlayerRoomSnapshot;
 
 export function useCountdown(deadline: number | null): number {
   const [now, setNow] = useState(Date.now());
@@ -45,20 +51,40 @@ export function Timer({
   seconds,
   total,
   label = "seconds remaining",
+  audible = true,
 }: {
   seconds: number;
   total: number;
   label?: string;
+  audible?: boolean;
 }) {
+  const previousSecondsRef = useRef(seconds);
   const urgent = seconds <= 5;
   const warning = seconds <= 10 && !urgent;
+
+  useEffect(() => {
+    const previousSeconds = previousSecondsRef.current;
+    previousSecondsRef.current = seconds;
+    if (
+      !audible ||
+      seconds >= previousSeconds ||
+      seconds < 1 ||
+      seconds > 5
+    ) {
+      return;
+    }
+    playGameSound(seconds === 1 ? "timerFinal" : "timerTick");
+  }, [audible, seconds]);
+
   return (
     <div
       className={`timer ${urgent ? "timer--urgent" : warning ? "timer--warning" : ""}`}
       aria-label={`${seconds} ${label}`}
     >
       <Icon name={urgent ? "alert" : "clock"} size={20} />
-      <strong className="numeric">{seconds}</strong>
+      <strong key={urgent ? seconds : "steady"} className="numeric">
+        {seconds}
+      </strong>
       <span className="timer__unit">sec</span>
       <span className="timer__track" aria-hidden="true">
         <span
@@ -75,7 +101,7 @@ function WordDisplay({
   room,
   isDrawer,
 }: {
-  room: PlayerRoomSnapshot;
+  room: ClassicGameRoom;
   isDrawer: boolean;
 }) {
   const answer =
@@ -91,19 +117,27 @@ function WordDisplay({
     );
   }
   const mask = room.round?.wordMask;
+  const drawer = room.players.find(
+    (player) => player.id === room.round?.drawerId,
+  );
+  const selectionLabel = isDrawer
+    ? "Choose your word"
+    : drawer
+      ? `${drawer.name} is choosing a word`
+      : "Word choice in progress";
   return (
     <div
       className="word-display"
       aria-label={
         mask
           ? `${mask.words} ${mask.words === 1 ? "word" : "words"}, ${mask.letters} letters`
-          : "Word is being selected"
+          : selectionLabel
       }
     >
       <span>
         {mask
           ? `${mask.words === 1 ? "One word" : `${mask.words} words`} · ${mask.letters} letters`
-          : "Choosing a word"}
+          : selectionLabel}
       </span>
       <strong aria-hidden="true">{mask?.pattern ?? "•••"}</strong>
     </div>
@@ -114,7 +148,7 @@ export function GameStatusBar({
   room,
   isDrawer,
 }: {
-  room: PlayerRoomSnapshot;
+  room: ClassicGameRoom;
   isDrawer: boolean;
 }) {
   const round = room.round;
@@ -141,7 +175,11 @@ export function GameStatusBar({
         </span>
         <strong>
           Turn {round?.turn ?? 1}
-          {drawer ? ` · ${drawer.name} draws` : ""}
+          {drawer
+            ? ` · ${drawer.name} ${
+                round?.phase === "selecting" ? "chooses" : "draws"
+              }`
+            : ""}
         </strong>
       </div>
       <WordDisplay room={room} isDrawer={isDrawer} />
@@ -235,13 +273,43 @@ export function NetworkBanner({ round }: { round: RoundPublic }) {
   return null;
 }
 
-function feedbackBanner(feedback: GuessFeedback | null) {
-  if (!feedback || feedback.kind === "incorrect") return null;
+function signedDelta(value: number): string {
+  return value > 0 ? `+${value}` : `${value}`.replace("-", "−");
+}
+
+function feedbackBanner(
+  feedback: GuessFeedback | null,
+  showIncorrect: boolean,
+) {
+  if (
+    !feedback ||
+    (feedback.kind === "incorrect" && !showIncorrect)
+  ) {
+    return null;
+  }
   return (
     <Banner
-      tone={feedback.kind === "correct" ? "success" : "warning"}
-      icon={feedback.kind === "correct" ? "checkCircle" : "lightbulb"}
-      title={feedback.kind === "correct" ? "You got it" : "Very close"}
+      tone={
+        feedback.kind === "correct"
+          ? "success"
+          : feedback.kind === "incorrect"
+            ? "danger"
+            : "warning"
+      }
+      icon={
+        feedback.kind === "correct"
+          ? "checkCircle"
+          : feedback.kind === "incorrect"
+            ? "alert"
+            : "lightbulb"
+      }
+      title={
+        feedback.kind === "correct"
+          ? "You got it"
+          : feedback.kind === "incorrect"
+            ? `${signedDelta(feedback.scoreDelta)} points`
+            : "Very close"
+      }
       privateNote="Only you can see this."
     >
       {feedback.message}
@@ -249,9 +317,17 @@ function feedbackBanner(feedback: GuessFeedback | null) {
   );
 }
 
-export function GuessFeedbackBanner({ turnId }: { turnId: string }) {
+export function GuessFeedbackBanner({
+  turnId,
+  pro = false,
+}: {
+  turnId: string;
+  pro?: boolean;
+}) {
   const feedback = useRoomStore((state) => state.latestGuessFeedback);
-  return feedback?.turnId === turnId ? feedbackBanner(feedback) : null;
+  return feedback?.turnId === turnId
+    ? feedbackBanner(feedback, pro)
+    : null;
 }
 
 export function ChatPanel({
@@ -259,7 +335,7 @@ export function ChatPanel({
   isDrawer,
   compact = false,
 }: {
-  room: PlayerRoomSnapshot;
+  room: ClassicGameRoom;
   isDrawer: boolean;
   compact?: boolean;
 }) {
@@ -370,7 +446,24 @@ export function ChatPanel({
           <Icon name="alert" size={16} /> {error}
         </p>
       ) : null}
-      {isDrawer ? (
+      {room.mode === "pro" && !isDrawer ? (
+        <div className="pro-rule-note" role="note">
+          <Icon name="alert" size={18} />
+          <span>
+            <strong>Pro rule:</strong> an incorrect guess costs up to 25
+            points. Close guesses are safe.
+          </span>
+        </div>
+      ) : null}
+      {room.phase === "selecting" ? (
+        <div className="composer composer--disabled" role="status">
+          <Icon name="clock" size={20} />
+          <div>
+            <strong>Word choice in progress</strong>
+            <span>Guessing opens as soon as the word is ready.</span>
+          </div>
+        </div>
+      ) : isDrawer ? (
         <div className="composer composer--disabled">
           <Icon name="lock" size={20} />
           <div>
@@ -389,6 +482,7 @@ export function ChatPanel({
               value={text}
               maxLength={180}
               placeholder="Keep the answer secret"
+              disabled={disabled}
               onChange={(event) => setText(event.target.value)}
               data-testid={compact ? "mobile-guess-composer" : "guess-composer"}
             />
@@ -396,7 +490,7 @@ export function ChatPanel({
               icon="send"
               label="Send message"
               type="submit"
-              disabled={!text.trim() || pending}
+              disabled={!text.trim() || disabled}
             />
           </div>
         </form>
@@ -411,6 +505,7 @@ export function ChatPanel({
               value={text}
               maxLength={180}
               placeholder="Type a guess"
+              disabled={disabled}
               onChange={(event) => setText(event.target.value)}
               data-testid={compact ? "mobile-guess-composer" : "guess-composer"}
             />
@@ -432,7 +527,7 @@ export function MobileSupport({
   isDrawer,
   isHost,
 }: {
-  room: PlayerRoomSnapshot;
+  room: ClassicGameRoom;
   isDrawer: boolean;
   isHost: boolean;
 }) {
@@ -526,6 +621,20 @@ export function MobileSupport({
                 selfId={room.selfPlayerId}
                 ranked
                 showKick={isHost}
+                activeDrawerId={
+                  room.phase === "selecting" || room.phase === "drawing"
+                    ? (room.round?.drawerId ?? null)
+                    : null
+                }
+                {...(room.phase === "selecting" || room.phase === "drawing"
+                  ? {
+                      activeDrawerStatus: room.round?.pausedUntil
+                        ? ("Reconnecting" as const)
+                        : room.phase === "selecting"
+                          ? ("Choosing" as const)
+                          : ("Drawing" as const),
+                    }
+                  : {})}
                 onKick={(playerId) =>
                   void roomController.kickPlayer(playerId)
                 }

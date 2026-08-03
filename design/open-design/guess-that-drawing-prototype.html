@@ -6,9 +6,15 @@
     <meta name="theme-color" content="#F6F1E7" />
     <meta
       name="description"
-      content="A responsive frontend prototype for the Guess That Drawing multiplayer party game."
+      content="A responsive three-mode frontend prototype for Guess That Drawing, covering Classic, Pro, and synchronized Phone Mode."
     />
-    <title>Guess That Drawing — Frontend Prototype</title>
+    <meta name="od:reviewed-modes" content="Classic, Pro, Phone" />
+    <meta name="od:reviewed-viewports" content="390, 768, 1024, 1440, 844x390 landscape" />
+    <meta name="od:setup-contract" content="Mode & settings; code-private rooms; Classic/Pro Theme at step 3" />
+    <meta name="od:phone-timers" content="Text 30-120 seconds default 60; Drawing 60-180 seconds default 120" />
+    <meta name="od:phone-text-limit" content="Write and Guess accept 1-180 trimmed characters" />
+    <meta name="od:phone-skipped-step" content="Informational warning; continue from latest valid contribution under the existing deadline" />
+    <title>Guess That Drawing — Three-Mode Responsive Prototype</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -27,13 +33,8 @@
     <div id="root"></div>
     <noscript>This prototype requires JavaScript to display its reviewable interface states.</noscript>
 
-    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
-    <script type="text/babel" data-presets="react" src="./prototype/icons.jsx"></script>
-    <script type="text/babel" data-presets="react" src="./prototype/components.jsx"></script>
-    <script type="text/babel" data-presets="react" src="./prototype/screens-setup.jsx"></script>
-    <script type="text/babel" data-presets="react" src="./prototype/screens-game.jsx"></script>
-    <script type="text/babel" data-presets="react" src="./prototype/app.jsx"></script>
+    <script src="./prototype/vendor/react.production.min.js"></script>
+    <script src="./prototype/vendor/react-dom.production.min.js"></script>
+    <script src="./prototype/app.bundle.js"></script>
   </body>
 </html>

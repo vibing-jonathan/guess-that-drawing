@@ -20,14 +20,18 @@
     "prototype/components.jsx",
     "prototype/screens-setup.jsx",
     "prototype/screens-game.jsx",
-    "prototype/app.jsx"
+    "prototype/app.jsx",
+    "prototype/bundle-entry.jsx",
+    "prototype/app.bundle.js",
+    "prototype/vendor/react.production.min.js",
+    "prototype/vendor/react-dom.production.min.js"
   ],
   "sourceSkillId": "frontend-design",
   "designSystemId": "guess-that-drawing",
   "metadata": {
     "identifier": "guess-that-drawing-frontend-prototype",
     "prototypeOnly": true,
-    "framework": "React 18 inline JSX",
+    "framework": "React 18 bundled JSX modules",
     "designSystem": "DESIGN.md"
   }
 }

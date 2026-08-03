@@ -8,6 +8,9 @@ export const GAME_DEFAULTS = {
   drawingCycles: 2,
   turnSeconds: 80,
   wordSelectionSeconds: 15,
+  phoneMinPlayers: 4,
+  phoneTextSeconds: 60,
+  phoneDrawingSeconds: 120,
   reconnectGraceSeconds: 30,
   drawerPauseSeconds: 20,
   emptyRoomTtlSeconds: 30 * 60,
@@ -22,6 +25,9 @@ export const VALIDATION_LIMITS = {
   customThemeWords: { min: 20, max: 500 },
   themeWord: { min: 2, max: 60 },
   chatMessage: { min: 1, max: 180 },
+  phoneText: { min: 1, max: 180 },
+  phoneTextSeconds: { min: 30, max: 120 },
+  phoneDrawingSeconds: { min: 60, max: 180 },
   drawingBatchOperations: { min: 1, max: 64 },
   drawingPointsPerOperation: { min: 1, max: 256 },
   drawingLogOperations: 10_000,
@@ -50,7 +56,17 @@ export const SCORE_RULES = {
   placementBonuses: [200, 100, 50] as const,
   drawerPerCorrectGuesser: 75,
   drawerMaximum: 500,
+  proIncorrectGuessPenalty: 25,
 } as const;
+
+export const GAME_MODES = ["classic", "pro", "phone"] as const;
+
+export const PHONE_ACTIVE_PHASES = [
+  "phone-writing",
+  "phone-drawing-1",
+  "phone-guessing",
+  "phone-drawing-2",
+] as const;
 
 export const SOCKET_RATE_LIMITS = {
   chatPerTenSeconds: 8,

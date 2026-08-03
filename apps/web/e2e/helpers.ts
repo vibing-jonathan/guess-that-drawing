@@ -1,7 +1,18 @@
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
 export const BASE_URL =
-  process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:5173";
+  process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+
+export type SupportedGameMode = "classic" | "pro" | "phone";
+
+export interface CreateRoomOptions {
+  mode?: SupportedGameMode;
+  cycles?: number;
+  wordSelectionSeconds?: number;
+  phonePlayerCap?: number;
+  phoneTextSeconds?: number;
+  phoneDrawingSeconds?: number;
+}
 
 export async function createPlayerContext(
   browser: Browser,
@@ -14,21 +25,44 @@ export async function createPlayerContext(
 export async function createRoom(
   page: Page,
   name: string,
-  options: { cycles?: number } = {},
+  options: CreateRoomOptions = {},
 ): Promise<string> {
+  const mode = options.mode ?? "classic";
   await page.goto("/profile?next=/create");
   await page.getByLabel("Display name").fill(name);
   await page.getByRole("button", { name: "Save profile" }).click();
   await expect(page).toHaveURL(/\/create$/);
-  await page
-    .getByLabel("Drawing cycles")
-    .selectOption(String(options.cycles ?? 1));
-  await page.getByLabel("Turn time").selectOption("45");
-  await page.getByLabel("Word selection").selectOption("10");
-  await page.getByRole("button", { name: "Choose a theme" }).click();
-  await expect(page).toHaveURL(/\/themes$/);
+  await page.locator(`#game-mode-${mode}`).click();
+
+  if (mode === "phone") {
+    await page
+      .getByLabel("Player cap")
+      .selectOption(String(options.phonePlayerCap ?? 4));
+    await page
+      .getByLabel("Text timer")
+      .selectOption(String(options.phoneTextSeconds ?? 30));
+    await page
+      .getByLabel("Drawing timer")
+      .selectOption(String(options.phoneDrawingSeconds ?? 60));
+    await page
+      .getByRole("button", { name: "Review Phone room" })
+      .click();
+  } else {
+    await page
+      .getByLabel("Drawing cycles")
+      .selectOption(String(options.cycles ?? 1));
+    await page.getByLabel("Turn time").selectOption("45");
+    await page
+      .getByLabel("Word selection")
+      .selectOption(String(options.wordSelectionSeconds ?? 10));
+    await page.getByRole("button", { name: "Choose a theme" }).click();
+    await expect(page).toHaveURL(/\/themes$/);
+    await page.getByTestId("review-room-submit").click();
+  }
+
+  await expect(page).toHaveURL(/\/review$/);
   await page.getByTestId("create-room-submit").click();
-  await expect(page.getByText("Host lobby", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Host lobby$/).first()).toBeVisible();
   const code = (await page.getByTestId("room-code").textContent())?.trim();
   expect(code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
   return code!;
@@ -44,23 +78,30 @@ export async function joinRoom(
   await page.getByLabel("Display name").fill(name);
   await page.getByTestId("join-submit").click();
   if (options.expectLobby ?? true) {
-    await expect(page.getByText("Guest lobby", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Guest lobby$/).first()).toBeVisible();
     await expect(page.getByTestId("room-code")).toHaveText(code);
   } else {
     await expect(page).toHaveURL(new RegExp(`/room/${code}$`));
   }
 }
 
-export async function startMatch(host: Page): Promise<void> {
+export async function startMatch(
+  host: Page,
+  mode: SupportedGameMode = "classic",
+): Promise<void> {
   const start = host.getByTestId("start-game");
   await expect(start).toBeEnabled();
   await start.click();
   await expect(
-    host.getByRole("heading", { name: "Choose a word" }),
+    host.getByRole("heading", {
+      name: mode === "phone" ? "Write the opening" : "Choose a word",
+    }),
   ).toBeVisible();
 }
 
 export async function chooseDrawableWord(drawer: Page): Promise<string> {
+  const dialog = drawer.getByRole("dialog", { name: "Choose a word" });
+  await expect(dialog).toBeVisible();
   const choices = drawer.locator('[data-testid^="word-choice-"]');
   await expect(choices).toHaveCount(3);
   const labels = await choices.locator("span").allTextContents();
@@ -73,7 +114,8 @@ export async function chooseDrawableWord(drawer: Page): Promise<string> {
   await drawer
     .getByRole("button", { name: "Draw selected word" })
     .click();
-  await expect(drawer.getByTestId("drawing-canvas-main")).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  await expect(drawer.getByLabel("Editable drawing surface")).toBeVisible();
   return answer;
 }
 

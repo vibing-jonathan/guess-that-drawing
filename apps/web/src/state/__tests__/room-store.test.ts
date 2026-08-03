@@ -1,11 +1,18 @@
 import type {
   GuessFeedbackEvent,
+  PhonePrivateStateEvent,
+  PhoneStateEvent,
   RoundPrivateEvent,
 } from "@gtd/contracts";
 import { describe, expect, it } from "vitest";
 
 import { createRoomStore } from "../room-store";
-import { makePlayer, makeSnapshot } from "./fixtures";
+import {
+  makePhoneDrawingEnvelope,
+  makePhoneWritingSnapshot,
+  makePlayer,
+  makeSnapshot,
+} from "./fixtures";
 
 describe("room store", () => {
   it("keeps drawer secrets only for the matching drawer and turn", () => {
@@ -23,7 +30,9 @@ describe("room store", () => {
     expect(
       guesserStore.getState().applySnapshot(leakedSnapshot),
     ).toBe("applied");
-    expect(guesserStore.getState().room?.privateRound).toBeNull();
+    expect(guesserStore.getState().room).toMatchObject({
+      privateRound: null,
+    });
 
     const privateEvent: RoundPrivateEvent = {
       revision: 2,
@@ -36,7 +45,9 @@ describe("room store", () => {
     expect(
       guesserStore.getState().applyPrivateRound(privateEvent),
     ).toBe("ignored");
-    expect(guesserStore.getState().room?.privateRound).toBeNull();
+    expect(guesserStore.getState().room).toMatchObject({
+      privateRound: null,
+    });
 
     const drawerStore = createRoomStore();
     drawerStore.getState().applySnapshot(
@@ -48,9 +59,11 @@ describe("room store", () => {
     expect(
       drawerStore.getState().applyPrivateRound(privateEvent),
     ).toBe("applied");
-    expect(drawerStore.getState().room?.privateRound?.answer).toBe(
-      "castle",
-    );
+    const drawerRoom = drawerStore.getState().room;
+    if (!drawerRoom || drawerRoom.mode === "phone") {
+      throw new Error("Expected a classic drawing room.");
+    }
+    expect(drawerRoom.privateRound?.answer).toBe("castle");
   });
 
   it("never applies stale deltas and marks revision gaps for recovery", () => {
@@ -125,7 +138,7 @@ describe("room store", () => {
         kind: "close",
         turnId: "turn-1",
         message: "Very close!",
-        scoreAwarded: 0,
+        scoreDelta: 0,
         placement: null,
       },
     };
@@ -153,7 +166,7 @@ describe("room store", () => {
           kind: "correct",
           turnId: "turn-1",
           message: "Correct! +750 points",
-          scoreAwarded: 750,
+          scoreDelta: 750,
           placement: 1,
         },
       }),
@@ -242,5 +255,72 @@ describe("room store", () => {
       }),
     ).toBe("applied");
     expect(store.getState().room?.round?.pausedUntil).toBe(15_000);
+  });
+
+  it("accepts authoritative Phone progress across concurrent revision jumps and merges same-revision private recovery", () => {
+    const store = createRoomStore();
+    const snapshot = makePhoneWritingSnapshot({ revision: 1 });
+    store.getState().applySnapshot(snapshot);
+
+    const participants = snapshot.phone.participants.map((participant) =>
+      participant.playerId === "player-1"
+        ? { ...participant, status: "submitted" as const }
+        : participant,
+    );
+    const stateEvent: PhoneStateEvent = {
+      revision: 4,
+      phone: {
+        ...snapshot.phone,
+        submittedCount: 1,
+        participants,
+      },
+    };
+
+    expect(store.getState().applyPhoneState(stateEvent)).toBe("applied");
+    expect(store.getState().room?.revision).toBe(4);
+    expect(store.getState().syncStatus).toBe("synced");
+    expect(store.getState().revisionGap).toBeNull();
+
+    const draftEnvelope = makePhoneDrawingEnvelope();
+    const privateEvent: PhonePrivateStateEvent = {
+      revision: 4,
+      privatePhone: {
+        matchId: snapshot.phone.matchId,
+        phase: "phone-writing",
+        assignmentId: "assignment-1",
+        prompt: {
+          kind: "text",
+          text: "A tiny lighthouse on a giant turtle",
+        },
+        skippedEntryCount: 1,
+        draft: {
+          acceptedThroughSequence: 1,
+          envelopes: [draftEnvelope],
+        },
+        submitted: false,
+      },
+    };
+
+    expect(store.getState().applyPhonePrivate(privateEvent)).toBe(
+      "applied",
+    );
+    const room = store.getState().room;
+    expect(room?.mode).toBe("phone");
+    if (!room || room.mode !== "phone" || room.phase === "lobby") {
+      throw new Error("Expected an active Phone room.");
+    }
+    expect(room.privatePhone).toMatchObject({
+      assignmentId: "assignment-1",
+      skippedEntryCount: 1,
+      prompt: {
+        kind: "text",
+        text: "A tiny lighthouse on a giant turtle",
+      },
+      draft: {
+        acceptedThroughSequence: 1,
+      },
+    });
+    expect(room.drawing).toBeNull();
+    expect(room.chat).toEqual([]);
   });
 });

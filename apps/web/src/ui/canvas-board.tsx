@@ -12,6 +12,7 @@ import {
   fromContractDrawingEnvelope,
   toContractDrawingOp,
   type CanvasHistoryState,
+  type DrawingOperation,
   type DrawingTool,
   type ShapeMode,
 } from "../canvas";
@@ -43,11 +44,19 @@ export function CanvasBoard({
   editable,
   disabled,
   initialOperations,
+  sendOperation,
+  recover,
+  subscribeToRoomDrawing = true,
+  onActionCountChange,
 }: {
   turnId: string;
   editable: boolean;
   disabled: boolean;
   initialOperations: readonly DrawingEnvelope[];
+  sendOperation?: (operation: DrawingOperation) => Promise<unknown>;
+  recover?: () => Promise<unknown>;
+  subscribeToRoomDrawing?: boolean;
+  onActionCountChange?: (actionCount: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
@@ -68,16 +77,18 @@ export function CanvasBoard({
     const previewCanvas = previewRef.current;
     if (!canvas || !previewCanvas) return;
     const transport = new CanvasDrawingTransport({
-      send: (operation) =>
-        roomController.sendDrawingBatch({
-          turnId: operation.turnId,
-          strokeId: operation.strokeId,
-          chunkId: operation.chunkId,
-          operations: [
-            toContractDrawingOp(operation) as DrawingOp,
-          ],
-        }),
-      recover: () => roomController.requestSnapshot(),
+      send:
+        sendOperation ??
+        ((operation) =>
+          roomController.sendDrawingBatch({
+            turnId: operation.turnId,
+            strokeId: operation.strokeId,
+            chunkId: operation.chunkId,
+            operations: [
+              toContractDrawingOp(operation) as DrawingOp,
+            ],
+          })),
+      recover: recover ?? (() => roomController.requestSnapshot()),
       onError: setTransportError,
     });
     const requestThirtyHertzFrame = (callback: FrameRequestCallback) =>
@@ -96,7 +107,10 @@ export function CanvasBoard({
       requestFrame: requestThirtyHertzFrame,
       cancelFrame: cancelThirtyHertzFrame,
       onOperation: (operation) => transport.enqueue(operation),
-      onHistoryChange: setHistory,
+      onHistoryChange: (nextHistory) => {
+        setHistory(nextHistory);
+        onActionCountChange?.(nextHistory.actionCount);
+      },
     });
     engineRef.current = engine;
     if (initialOperations.length) {
@@ -105,25 +119,25 @@ export function CanvasBoard({
         turnId,
       );
     }
-    const unsubscribe = subscribeToDrawingRuntime({
-      onEnvelopes: (envelopes) => {
-        const relevant = envelopes
-          .filter((envelope) => envelope.turnId === turnId)
-          .map(fromContractDrawingEnvelope);
-        if (relevant.length) {
-          // Live events, replay fragments, and ordinary room snapshots are
-          // append-only synchronization. A destructive replacement here
-          // would cancel the drawer's active pointer and discard operations
-          // that are still inside the bounded transport window.
-          engine.mergeAuthoritativeOperations(relevant);
-        }
-      },
-      onReset: (resetTurnId) => {
-        if (resetTurnId === turnId) {
-          engine.resetTurn(turnId);
-        }
-      },
-    });
+    const unsubscribe = subscribeToRoomDrawing
+      ? subscribeToDrawingRuntime({
+          onEnvelopes: (envelopes) => {
+            const relevant = envelopes
+              .filter((envelope) => envelope.turnId === turnId)
+              .map(fromContractDrawingEnvelope);
+            if (relevant.length) {
+              // Live events, replay fragments, and ordinary room snapshots
+              // are append-only synchronization.
+              engine.mergeAuthoritativeOperations(relevant);
+            }
+          },
+          onReset: (resetTurnId) => {
+            if (resetTurnId === turnId) {
+              engine.resetTurn(turnId);
+            }
+          },
+        })
+      : () => undefined;
     const observer =
       typeof ResizeObserver === "undefined"
         ? null
@@ -139,7 +153,15 @@ export function CanvasBoard({
     // A new turn/permission state intentionally creates a fresh imperative
     // engine and event binding; tool values are applied by the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled, editable, turnId]);
+  }, [
+    disabled,
+    editable,
+    onActionCountChange,
+    recover,
+    sendOperation,
+    subscribeToRoomDrawing,
+    turnId,
+  ]);
 
   useEffect(() => engineRef.current?.setTool(tool), [tool]);
   useEffect(() => engineRef.current?.setColor(color), [color]);

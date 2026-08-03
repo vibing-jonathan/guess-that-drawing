@@ -68,8 +68,8 @@
   --color-link: var(--color-primary);
   --color-link-hover: var(--color-primary-hover);
 
-  --font-display: "Nunito", ui-rounded, sans-serif;
-  --font-body: "DM Sans", system-ui, sans-serif;
+  --font-display: "Nunito Variable", "Nunito", ui-rounded, sans-serif;
+  --font-body: "DM Sans Variable", "DM Sans", system-ui, sans-serif;
 
   --text-xs: clamp(0.75rem, 0.73rem + 0.08vw, 0.8125rem);
   --text-sm: clamp(0.875rem, 0.85rem + 0.1vw, 0.9375rem);
